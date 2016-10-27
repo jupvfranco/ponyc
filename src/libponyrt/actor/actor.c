@@ -126,8 +126,11 @@ bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)
   pony_msg_t* msg;
   size_t app = 0;
 
+
+/*
   while(actor->continuation != NULL)
   {
+    printf("CONTINUATION\n");
     msg = actor->continuation;
     actor->continuation = atomic_load_explicit(&msg->next,
        memory_order_relaxed);
@@ -144,6 +147,8 @@ bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)
         return !has_flag(actor, FLAG_UNSCHEDULED);
     }
   }
+  */
+
 
   // If we have been scheduled, the head will not be marked as empty.
   pony_msg_t* head = atomic_load_explicit(&actor->q.head, memory_order_relaxed);
@@ -156,8 +161,10 @@ bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)
       app++;
       try_gc(ctx, actor);
 
-      if(app == batch)
-        return !has_flag(actor, FLAG_UNSCHEDULED);
+      if(app == batch) {
+        printf("HIT BATCH\n");
+        return true; //!has_flag(actor, FLAG_UNSCHEDULED);
+      }
     }
 
     // Stop handling a batch if we reach the head we found when we were
@@ -171,7 +178,7 @@ bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)
   assert(app < batch);
   try_gc(ctx, actor);
 
-  if(has_flag(actor, FLAG_UNSCHEDULED))
+  if(false) //has_flag(actor, FLAG_UNSCHEDULED))
   {
     // When unscheduling, don't mark the queue as empty, since we don't want
     // to get rescheduled if we receive a message.
@@ -185,6 +192,8 @@ bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)
   // Tell the cycle detector we are blocking. We may not actually block if a
   // message is received between now and when we try to mark our queue as
   // empty, but that's ok, we have still logically blocked.
+
+/*
   if(!has_flag(actor, FLAG_BLOCKED | FLAG_SYSTEM) ||
     has_flag(actor, FLAG_RC_CHANGED))
   {
@@ -192,6 +201,7 @@ bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)
     unset_flag(actor, FLAG_RC_CHANGED);
     ponyint_cycle_block(ctx, actor, &actor->gc);
   }
+*/
 
   // Return true (i.e. reschedule immediately) if our queue isn't empty.
   return !ponyint_messageq_markempty(&actor->q);
@@ -330,7 +340,7 @@ void pony_sendv(pony_ctx_t* ctx, pony_actor_t* to, pony_msg_t* m)
 
   if(ponyint_messageq_push(&to->q, m))
   {
-    if(!has_flag(to, FLAG_UNSCHEDULED))
+    if(true) //!has_flag(to, FLAG_UNSCHEDULED))
       ponyint_sched_add(ctx, to);
   }
 }
@@ -409,6 +419,8 @@ void pony_triggergc(pony_actor_t* actor)
 
 void pony_schedule(pony_ctx_t* ctx, pony_actor_t* actor)
 {
+  printf("SCHEDULE\n");
+
   if(!has_flag(actor, FLAG_UNSCHEDULED))
     return;
 
@@ -418,6 +430,8 @@ void pony_schedule(pony_ctx_t* ctx, pony_actor_t* actor)
 
 void pony_unschedule(pony_ctx_t* ctx, pony_actor_t* actor)
 {
+  printf("UNSCHEDULE\n");
+
   if(has_flag(actor, FLAG_BLOCKED))
   {
     ponyint_cycle_unblock(ctx, actor);
