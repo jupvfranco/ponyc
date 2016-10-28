@@ -53,10 +53,13 @@ static void push(scheduler_t* sched, pony_actor_t* actor)
  */
 static pony_actor_t* pop_global(scheduler_t* sched)
 {
-  pony_actor_t* actor = (pony_actor_t*)ponyint_mpmcq_pop(&inject);
+  if (sched->cpu == 3)
+  {
+    pony_actor_t* actor = (pony_actor_t*)ponyint_mpmcq_pop(&inject);
 
-  if(actor != NULL)
-    return actor;
+    if(actor != NULL)
+      return actor;
+  }
 
   return pop(sched);
 }
@@ -416,6 +419,7 @@ void ponyint_sched_stop()
 
 void ponyint_sched_add(pony_ctx_t* ctx, pony_actor_t* actor)
 {
+  // IS IT INJECT ISSUE
   if(ctx->scheduler != NULL)
   {
     // Add to the current scheduler thread.
