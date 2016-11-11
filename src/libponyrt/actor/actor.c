@@ -106,6 +106,10 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
   if(!ponyint_heap_startgc(&actor->heap))
     return;
 
+  #ifdef USE_TELEMETRY
+    ctx->count_gc_passes++;
+    size_t tsc = ponyint_cpu_tick();
+  #endif
   DTRACE1(GC_START, (uintptr_t)ctx->scheduler);
 
   ponyint_gc_mark(ctx);
@@ -116,6 +120,9 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
   ponyint_mark_done(ctx);
   ponyint_heap_endgc(&actor->heap);
 
+  #ifdef USE_TELEMETRY
+    ctx->time_in_gc += (ponyint_cpu_tick() - tsc);
+  #endif
   DTRACE1(GC_END, (uintptr_t)ctx->scheduler);
 }
 
@@ -275,6 +282,9 @@ pony_actor_t* pony_create(pony_ctx_t* ctx, pony_type_t* type)
 {
   assert(type != NULL);
 
+  #ifdef USE_TELEMETRY
+    ctx->count_alloc_actors++;
+  #endif
   DTRACE1(ACTOR_ALLOC, (uintptr_t)ctx->scheduler);
 
   // allocate variable sized actors correctly
@@ -326,6 +336,18 @@ pony_msg_t* pony_alloc_msg_size(size_t size, uint32_t id)
 
 void pony_sendv(pony_ctx_t* ctx, pony_actor_t* to, pony_msg_t* m)
 {
+  #ifdef USE_TELEMETRY
+   switch(m->id)
+   {
+     case ACTORMSG_BLOCK: ctx->count_msg_block++; break;
+     case ACTORMSG_UNBLOCK: ctx->count_msg_unblock++; break;
+     case ACTORMSG_ACQUIRE: ctx->count_msg_acquire++; break;
+     case ACTORMSG_RELEASE: ctx->count_msg_release++; break;
+     case ACTORMSG_CONF: ctx->count_msg_conf++; break;
+     case ACTORMSG_ACK: ctx->count_msg_ack++; break;
+     default: ctx->count_msg_app++;
+   }
+  #endif
   DTRACE2(ACTOR_MSG_SEND, (uintptr_t)ctx->scheduler, m->id);
 
   if(ponyint_messageq_push(&to->q, m))
@@ -367,6 +389,10 @@ void pony_continuation(pony_actor_t* self, pony_msg_t* m)
 
 void* pony_alloc(pony_ctx_t* ctx, size_t size)
 {
+  #ifdef USE_TELEMETRY
+    ctx->count_alloc++;
+    ctx->count_alloc_size += size;
+  #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
   return ponyint_heap_alloc(ctx->current, &ctx->current->heap, size);
@@ -374,6 +400,10 @@ void* pony_alloc(pony_ctx_t* ctx, size_t size)
 
 void* pony_alloc_small(pony_ctx_t* ctx, uint32_t sizeclass)
 {
+  #ifdef USE_TELEMETRY
+    ctx->count_alloc++;
+    ctx->count_alloc_size += HEAP_MIN << sizeclass;
+  #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, HEAP_MIN << sizeclass);
 
   return ponyint_heap_alloc_small(ctx->current, &ctx->current->heap, sizeclass);
@@ -381,6 +411,10 @@ void* pony_alloc_small(pony_ctx_t* ctx, uint32_t sizeclass)
 
 void* pony_alloc_large(pony_ctx_t* ctx, size_t size)
 {
+  #ifdef USE_TELEMETRY
+    ctx->count_alloc++;
+    ctx->count_alloc_size += size;
+  #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
   return ponyint_heap_alloc_large(ctx->current, &ctx->current->heap, size);
@@ -388,6 +422,10 @@ void* pony_alloc_large(pony_ctx_t* ctx, size_t size)
 
 void* pony_realloc(pony_ctx_t* ctx, void* p, size_t size)
 {
+  #ifdef USE_TELEMETRY
+    ctx->count_alloc++;
+    ctx->count_alloc_size += size;
+  #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
   return ponyint_heap_realloc(ctx->current, &ctx->current->heap, p, size);
@@ -395,6 +433,10 @@ void* pony_realloc(pony_ctx_t* ctx, void* p, size_t size)
 
 void* pony_alloc_final(pony_ctx_t* ctx, size_t size, pony_final_fn final)
 {
+  #ifdef USE_TELEMETRY
+    ctx->count_alloc++;
+    ctx->count_alloc_size += size;
+  #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
   void* p = ponyint_heap_alloc(ctx->current, &ctx->current->heap, size);

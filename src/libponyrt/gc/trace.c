@@ -12,6 +12,9 @@ void pony_gc_send(pony_ctx_t* ctx)
   ctx->trace_object = ponyint_gc_sendobject;
   ctx->trace_actor = ponyint_gc_sendactor;
 
+  #ifdef USE_TELEMETRY
+    ctx->tsc = ponyint_cpu_tick();
+  #endif
   DTRACE1(GC_SEND_START, (uintptr_t)ctx->scheduler);
 }
 
@@ -21,6 +24,9 @@ void pony_gc_recv(pony_ctx_t* ctx)
   ctx->trace_object = ponyint_gc_recvobject;
   ctx->trace_actor = ponyint_gc_recvactor;
 
+  #ifdef USE_TELEMETRY
+    ctx->tsc = ponyint_cpu_tick();
+  #endif
   DTRACE1(GC_RECV_START, (uintptr_t)ctx->scheduler);
 }
 
@@ -51,6 +57,9 @@ void pony_send_done(pony_ctx_t* ctx)
   ponyint_gc_sendacquire(ctx);
   ponyint_gc_done(ponyint_actor_gc(ctx->current));
 
+  #ifdef USE_TELEMETRY
+    ctx->time_in_send_scan += (ponyint_cpu_tick() - ctx->tsc);
+  #endif
   DTRACE1(GC_SEND_END, (uintptr_t)ctx->scheduler);
 }
 
@@ -59,6 +68,9 @@ void pony_recv_done(pony_ctx_t* ctx)
   ponyint_gc_handlestack(ctx);
   ponyint_gc_done(ponyint_actor_gc(ctx->current));
 
+  #ifdef USE_TELEMETRY
+    ctx->time_in_recv_scan += (ponyint_cpu_tick() - ctx->tsc);
+  #endif
   DTRACE1(GC_RECV_END, (uintptr_t)ctx->scheduler);
 }
 

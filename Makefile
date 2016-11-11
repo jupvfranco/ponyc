@@ -125,6 +125,11 @@ ifdef use
     PONY_BUILD_DIR := $(PONY_BUILD_DIR)-pooltrack
   endif
 
+	ifneq (,$(filter $(use), telemetry))
+    ALL_CFLAGS += -DUSE_TELEMETRY
+	  PONY_BUILD_DIR := $(PONY_BUILD_DIR)-telemetry
+  endif
+
   ifneq (,$(filter $(use), dtrace))
     DTRACE ?= $(shell which dtrace)
     ifeq (, $(DTRACE))
@@ -758,6 +763,7 @@ help:
 	@echo 'USE OPTIONS:'
 	@echo '   valgrind'
 	@echo '   pooltrack'
+	@echo '   telemetry'
 	@echo '   dtrace'
 	@echo
 	@echo 'TARGETS:'
