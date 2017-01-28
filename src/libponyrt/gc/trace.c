@@ -8,6 +8,9 @@
 
 void pony_gc_send(pony_ctx_t* ctx)
 {
+#ifdef NOGC 
+  // nothing
+#else
   assert(ctx->stack == NULL);
   ctx->trace_object = ponyint_gc_sendobject;
   ctx->trace_actor = ponyint_gc_sendactor;
@@ -16,10 +19,14 @@ void pony_gc_send(pony_ctx_t* ctx)
     ctx->tsc = ponyint_cpu_tick();
   #endif
   DTRACE1(GC_SEND_START, (uintptr_t)ctx->scheduler);
+#endif
 }
 
 void pony_gc_recv(pony_ctx_t* ctx)
 {
+#ifdef NOGC 
+  // nothing
+#else
   assert(ctx->stack == NULL);
   ctx->trace_object = ponyint_gc_recvobject;
   ctx->trace_actor = ponyint_gc_recvactor;
@@ -28,6 +35,7 @@ void pony_gc_recv(pony_ctx_t* ctx)
     ctx->tsc = ponyint_cpu_tick();
   #endif
   DTRACE1(GC_RECV_START, (uintptr_t)ctx->scheduler);
+#endif
 }
 
 void ponyint_gc_mark(pony_ctx_t* ctx)
@@ -53,6 +61,9 @@ void pony_gc_release(pony_ctx_t* ctx)
 
 void pony_send_done(pony_ctx_t* ctx)
 {
+#ifdef NOGC 
+  // nothing
+#else
   ponyint_gc_handlestack(ctx);
   ponyint_gc_sendacquire(ctx);
   ponyint_gc_done(ponyint_actor_gc(ctx->current));
@@ -61,10 +72,14 @@ void pony_send_done(pony_ctx_t* ctx)
     ctx->time_in_send_scan += (ponyint_cpu_tick() - ctx->tsc);
   #endif
   DTRACE1(GC_SEND_END, (uintptr_t)ctx->scheduler);
+#endif  
 }
 
 void pony_recv_done(pony_ctx_t* ctx)
 {
+#ifdef NOGC 
+  // nothing
+#else
   ponyint_gc_handlestack(ctx);
   ponyint_gc_done(ponyint_actor_gc(ctx->current));
 
@@ -72,6 +87,7 @@ void pony_recv_done(pony_ctx_t* ctx)
     ctx->time_in_recv_scan += (ponyint_cpu_tick() - ctx->tsc);
   #endif
   DTRACE1(GC_RECV_END, (uintptr_t)ctx->scheduler);
+#endif  
 }
 
 void ponyint_mark_done(pony_ctx_t* ctx)
@@ -105,21 +121,32 @@ void pony_send_next(pony_ctx_t* ctx)
 
 void pony_trace(pony_ctx_t* ctx, void* p)
 {
+#ifdef NOGC
+  // nothing 
+#else    
   ctx->trace_object(ctx, p, NULL, PONY_TRACE_OPAQUE);
+#endif
 }
 
 void pony_traceknown(pony_ctx_t* ctx, void* p, pony_type_t* t, int m)
 {
+#ifdef NOGC
+  // nothing 
+#else  
   if(t->dispatch != NULL)
   {
     ctx->trace_actor(ctx, (pony_actor_t*)p);
   } else {
     ctx->trace_object(ctx, p, t, m);
   }
+#endif
 }
 
 void pony_traceunknown(pony_ctx_t* ctx, void* p, int m)
 {
+#ifdef NOGC
+  // nothing 
+#else 
   pony_type_t* t = *(pony_type_t**)p;
 
   if(t->dispatch != NULL)
@@ -128,4 +155,5 @@ void pony_traceunknown(pony_ctx_t* ctx, void* p, int m)
   } else {
     ctx->trace_object(ctx, p, t, m);
   }
+#endif
 }

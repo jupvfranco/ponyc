@@ -44,8 +44,9 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
   {
     case ACTORMSG_ACQUIRE:
     {
-      pony_msgp_t* m = (pony_msgp_t*)msg;
 
+      pony_msgp_t* m = (pony_msgp_t*)msg;
+#ifndef NOGC
       if(ponyint_gc_acquire(&actor->gc, (actorref_t*)m->p) &&
         has_flag(actor, FLAG_BLOCKED))
       {
@@ -53,13 +54,15 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
         // any CONF messages.
         set_flag(actor, FLAG_RC_CHANGED);
       }
-
+#endif
       return false;
     }
 
     case ACTORMSG_RELEASE:
     {
       pony_msgp_t* m = (pony_msgp_t*)msg;
+
+#ifndef NOGC
 
       if(ponyint_gc_release(&actor->gc, (actorref_t*)m->p) &&
         has_flag(actor, FLAG_BLOCKED))
@@ -68,7 +71,7 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
         // any CONF messages.
         set_flag(actor, FLAG_RC_CHANGED);
       }
-
+#endif
       return false;
     }
 
@@ -103,6 +106,9 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
 
 static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
 {
+#ifdef NOGC 
+  // nothing
+#else
   if(!ponyint_heap_startgc(&actor->heap))
     return;
 
@@ -111,7 +117,7 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
     size_t tsc = ponyint_cpu_tick();
   #endif
   DTRACE1(GC_START, (uintptr_t)ctx->scheduler);
-
+  
   ponyint_gc_mark(ctx);
 
   if(actor->type->trace != NULL)
@@ -124,6 +130,7 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
     ctx->time_in_gc += (ponyint_cpu_tick() - tsc);
   #endif
   DTRACE1(GC_END, (uintptr_t)ctx->scheduler);
+#endif
 }
 
 bool ponyint_actor_run(pony_ctx_t* ctx, pony_actor_t* actor, size_t batch)

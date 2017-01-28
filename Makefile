@@ -91,7 +91,7 @@ prefix ?= /usr/local
 destdir ?= $(prefix)/lib/pony/$(tag)
 
 LIB_EXT ?= a
-BUILD_FLAGS = -march=$(arch) -Werror -Wconversion \
+BUILD_FLAGS = -march=$(arch) -Wconversion \
   -Wno-sign-conversion -Wextra -Wall
 LINKER_FLAGS = -march=$(arch)
 AR_FLAGS ?= rcs
@@ -125,9 +125,14 @@ ifdef use
     PONY_BUILD_DIR := $(PONY_BUILD_DIR)-pooltrack
   endif
 
-	ifneq (,$(filter $(use), telemetry))
+  ifneq (,$(filter $(use), telemetry))
     ALL_CFLAGS += -DUSE_TELEMETRY
-	  PONY_BUILD_DIR := $(PONY_BUILD_DIR)-telemetry
+	PONY_BUILD_DIR := $(PONY_BUILD_DIR)-telemetry
+  endif
+
+  ifneq (,$(filter $(use), no_gc))
+    ALL_CFLAGS += -DNOGC
+	PONY_BUILD_DIR := $(PONY_BUILD_DIR)-nogc
   endif
 
   ifneq (,$(filter $(use), dtrace))
@@ -764,6 +769,7 @@ help:
 	@echo '   valgrind'
 	@echo '   pooltrack'
 	@echo '   telemetry'
+	@echo '   nogc'
 	@echo '   dtrace'
 	@echo
 	@echo 'TARGETS:'
