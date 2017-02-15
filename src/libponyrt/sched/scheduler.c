@@ -356,17 +356,17 @@ static void gcs2String(gc_cycle_t* head)
   printf("\n");
 }
 
-static void allStates2String(memory_state_t* head)
-{
-  printf("\nmemory usage: ");
-  memory_state_t* cur = head;
-  while (cur != NULL)
-  {
-    printf("%zu->", cur->current);
-    cur = cur->next_state;
-  }
-  printf("\n");
-}
+// static void allStates2String(memory_state_t* head)
+// {
+//   printf("\nmemory usage: ");
+//   memory_state_t* cur = head;
+//   while (cur != NULL)
+//   {
+//     printf("%zu->", cur->current);
+//     cur = cur->next_state;
+//   }
+//   printf("\n");
+// }
 #endif
 
 static void ponyint_sched_shutdown()

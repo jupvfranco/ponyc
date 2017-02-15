@@ -28,11 +28,11 @@ typedef struct gc_cycle_t
   size_t end_gc;
 } gc_cycle_t;
 
-typedef struct memory_state_t
-{
-  memory_state_t* next_state;
-  size_t current;
-} memory_state_t;
+// typedef struct memory_state_t
+// {
+//   memory_state_t* next_state;
+//   size_t current;
+// } memory_state_t;
 
 size_t starting;
 size_t ending;
@@ -73,8 +73,8 @@ typedef struct pony_ctx_t
     size_t time_in_recv_scan;
 
     gc_cycle_t* next_gc;
-    memory_state_t* next_state;
-    size_t currently_allocated;
+    // memory_state_t* next_state;
+    // size_t currently_allocated;
   #endif
 } pony_ctx_t;
 
