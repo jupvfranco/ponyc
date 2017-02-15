@@ -108,8 +108,15 @@ static bool is_expr_infix(token_id id)
     case TK_MULTIPLY:
     case TK_DIVIDE:
     case TK_MOD:
+    case TK_PLUS_TILDE:
+    case TK_MINUS_TILDE:
+    case TK_MULTIPLY_TILDE:
+    case TK_DIVIDE_TILDE:
+    case TK_MOD_TILDE:
     case TK_LSHIFT:
     case TK_RSHIFT:
+    case TK_LSHIFT_TILDE:
+    case TK_RSHIFT_TILDE:
     case TK_IS:
     case TK_ISNT:
     case TK_EQ:
@@ -118,6 +125,12 @@ static bool is_expr_infix(token_id id)
     case TK_LE:
     case TK_GE:
     case TK_GT:
+    case TK_EQ_TILDE:
+    case TK_NE_TILDE:
+    case TK_LT_TILDE:
+    case TK_LE_TILDE:
+    case TK_GE_TILDE:
+    case TK_GT_TILDE:
     case TK_UNIONTYPE:
     case TK_ISECTTYPE:
       return true;
@@ -291,10 +304,6 @@ static bool check_members(pass_opt_t* opt, ast_t* members, int entity_def_index)
         if(!check_id_field(opt, ast_child(member)))
           r = false;
 
-        ast_t* delegate_type = ast_childidx(member, 3);
-        if(ast_id(delegate_type) != TK_NONE &&
-          !check_provides_type(opt, delegate_type, "delegate"))
-          r = false;
         break;
       }
 
@@ -459,6 +468,48 @@ static ast_result_t syntax_arrowtype(pass_opt_t* opt, ast_t* ast)
   }
 
   return AST_OK;
+}
+
+
+static ast_result_t syntax_nominal(pass_opt_t* opt, ast_t* ast)
+{
+  assert(ast != NULL);
+  AST_GET_CHILDREN(ast, package, name, typeargs, cap, eph);
+
+  if(!is_name_dontcare(ast_name(name)))
+    return AST_OK;
+
+  ast_result_t r = AST_OK;
+
+  if(ast_id(package) != TK_NONE)
+  {
+    ast_error(opt->check.errors, package,
+      "'_' cannot be in a package");
+    r = AST_ERROR;
+  }
+
+  if(ast_id(typeargs) != TK_NONE)
+  {
+    ast_error(opt->check.errors, typeargs,
+      "'_' cannot have generic arguments");
+    r = AST_ERROR;
+  }
+
+  if(ast_id(cap) != TK_NONE)
+  {
+    ast_error(opt->check.errors, cap,
+      "'_' cannot specify capability");
+    r = AST_ERROR;
+  }
+
+  if(ast_id(eph) != TK_NONE)
+  {
+    ast_error(opt->check.errors, eph,
+      "'_' cannot specify capability modifier");
+    r = AST_ERROR;
+  }
+
+  return r;
 }
 
 
@@ -1084,6 +1135,7 @@ ast_result_t pass_syntax(ast_t** astp, pass_opt_t* options)
     case TK_INTERFACE:  r = syntax_entity(options, ast, DEF_INTERFACE); break;
     case TK_THISTYPE:   r = syntax_thistype(options, ast); break;
     case TK_ARROW:      r = syntax_arrowtype(options, ast); break;
+    case TK_NOMINAL:    r = syntax_nominal(options, ast); break;
     case TK_MATCH:      r = syntax_match(options, ast); break;
     case TK_FFIDECL:    r = syntax_ffi(options, ast, false); break;
     case TK_FFICALL:    r = syntax_ffi(options, ast, true); break;
@@ -1127,6 +1179,9 @@ ast_result_t pass_syntax(ast_t** astp, pass_opt_t* options)
     case TK_VALUEFORMALPARAM:
       ast_error(options->check.errors, ast,
         "Value formal parameters not yet supported");
+      ast_error_continue(options->check.errors, ast_parent(ast), 
+        "Note that many functions including array indexing use the apply "
+        "method rather than square brackets");
       r = AST_ERROR;
       break;
 

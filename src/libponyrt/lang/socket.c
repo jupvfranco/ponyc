@@ -39,7 +39,7 @@ PONY_EXTERN_C_BEGIN
 
 void pony_os_socket_close(int fd);
 
-// This must match the pony IPAddress type in packages/net.
+// This must match the pony NetAddress type in packages/net.
 typedef struct
 {
   pony_type_t* type;
@@ -569,7 +569,7 @@ static bool os_connect(pony_actor_t* owner, int fd, struct addrinfo *p,
   }
 
   // Create an event and subscribe it.
-  pony_asio_event_create(owner, fd, ASIO_READ | ASIO_WRITE, 0, true);
+  pony_asio_event_create(owner, fd, ASIO_READ | ASIO_WRITE | ASIO_ONESHOT, 0, true);
 #endif
 
   return true;

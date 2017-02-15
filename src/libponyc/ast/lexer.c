@@ -51,6 +51,24 @@ static const lextoken_t symbols[] =
   { "->", TK_ARROW },
   { "=>", TK_DBLARROW },
 
+  { "<<~", TK_LSHIFT_TILDE },
+  { ">>~", TK_RSHIFT_TILDE },
+
+  { "==~", TK_EQ_TILDE },
+  { "!=~", TK_NE_TILDE },
+
+  { "<=~", TK_LE_TILDE },
+  { ">=~", TK_GE_TILDE },
+
+  { "<~", TK_LT_TILDE },
+  { ">~", TK_GT_TILDE },
+
+  { "+~", TK_PLUS_TILDE },
+  { "-~", TK_MINUS_TILDE },
+  { "*~", TK_MULTIPLY_TILDE },
+  { "/~", TK_DIVIDE_TILDE },
+  { "%~", TK_MOD_TILDE },
+
   { "<<", TK_LSHIFT },
   { ">>", TK_RSHIFT },
 
@@ -59,6 +77,10 @@ static const lextoken_t symbols[] =
 
   { "<=", TK_LE },
   { ">=", TK_GE },
+
+  { ".>", TK_CHAIN },
+
+  { "\\", TK_BACKSLASH },
 
   { "{", TK_LBRACE },
   { "}", TK_RBRACE },
@@ -87,7 +109,7 @@ static const lextoken_t symbols[] =
   { "|", TK_PIPE },
   { "&", TK_ISECTTYPE },
   { "^", TK_EPHEMERAL },
-  { "!", TK_BORROWED },
+  { "!", TK_ALIASED },
 
   { "?", TK_QUESTION },
   { "-", TK_UNARY_MINUS },
@@ -95,6 +117,7 @@ static const lextoken_t symbols[] =
 
   { "(", TK_LPAREN_NEW },
   { "[", TK_LSQUARE_NEW },
+  { "-~", TK_MINUS_TILDE_NEW },
   { "-", TK_MINUS_NEW },
 
   { NULL, (token_id)0 }
@@ -102,7 +125,6 @@ static const lextoken_t symbols[] =
 
 static const lextoken_t keywords[] =
 {
-  { "_", TK_DONTCARE },
   { "compile_intrinsic", TK_COMPILE_INTRINSIC },
 
   { "use", TK_USE },
@@ -116,7 +138,6 @@ static const lextoken_t keywords[] =
   { "object", TK_OBJECT },
   { "lambda", TK_LAMBDA },
 
-  { "delegate", TK_DELEGATE },
   { "as", TK_AS },
   { "is", TK_IS },
   { "isnt", TK_ISNT },
@@ -184,7 +205,7 @@ static const lextoken_t keywords[] =
   { "$noseq", TK_TEST_NO_SEQ },
   { "$scope", TK_TEST_SEQ_SCOPE },
   { "$try_no_check", TK_TEST_TRY_NO_CHECK },
-  { "$borrowed", TK_TEST_BORROWED },
+  { "$aliased", TK_TEST_ALIASED },
   { "$updatearg", TK_TEST_UPDATEARG },
   { "$extra", TK_TEST_EXTRA },
   { "$ifdefand", TK_IFDEFAND },
@@ -207,6 +228,7 @@ static const lextoken_t abstract[] =
   { "members", TK_MEMBERS },
   { "fvar", TK_FVAR },
   { "flet", TK_FLET },
+  { "dontcare", TK_DONTCARE },
   { "ffidecl", TK_FFIDECL },
   { "fficall", TK_FFICALL },
 
@@ -218,6 +240,7 @@ static const lextoken_t abstract[] =
   { "thistype", TK_THISTYPE },
   { "funtype", TK_FUNTYPE },
   { "lambdatype", TK_LAMBDATYPE },
+  { "dontcaretype", TK_DONTCARETYPE },
   { "infer", TK_INFERTYPE },
   { "errortype", TK_ERRORTYPE },
 
@@ -275,9 +298,12 @@ static const lextoken_t abstract[] =
   { "varref", TK_VARREF },
   { "letref", TK_LETREF },
   { "paramref", TK_PARAMREF },
+  { "dontcareref", TK_DONTCAREREF },
   { "newapp", TK_NEWAPP },
   { "beapp", TK_BEAPP },
   { "funapp", TK_FUNAPP },
+  { "bechain", TK_BECHAIN },
+  { "funchain", TK_FUNCHAIN },
 
   { "\\n", TK_NEWLINE },
   {NULL, (token_id)0}
@@ -479,6 +505,12 @@ static token_t* slash(lexer_t* lexer)
 
   if(lookn(lexer, 2) == '/')
     return line_comment(lexer);
+
+  if(lookn(lexer, 2) == '~')
+  {
+    consume_chars(lexer, 2);
+    return make_token(lexer, TK_DIVIDE_TILDE);
+  }
 
   consume_chars(lexer, 1);
   return make_token(lexer, TK_DIVIDE);
@@ -1149,10 +1181,11 @@ static token_id newline_symbols(token_id raw_token, bool newline)
 
   switch(raw_token)
   {
-    case TK_LPAREN:  return TK_LPAREN_NEW;
-    case TK_LSQUARE: return TK_LSQUARE_NEW;
-    case TK_MINUS:   return TK_MINUS_NEW;
-    default:         return raw_token;
+    case TK_LPAREN:      return TK_LPAREN_NEW;
+    case TK_LSQUARE:     return TK_LSQUARE_NEW;
+    case TK_MINUS:       return TK_MINUS_NEW;
+    case TK_MINUS_TILDE: return TK_MINUS_TILDE_NEW;
+    default:             return raw_token;
   }
 }
 

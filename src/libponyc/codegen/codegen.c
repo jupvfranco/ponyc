@@ -8,6 +8,9 @@
 #include "genopt.h"
 #include "gentype.h"
 #include "../pkg/package.h"
+#include "../reach/paint.h"
+#include "../type/assemble.h"
+#include "../type/lookup.h"
 #include "../../libponyrt/mem/heap.h"
 #include "../../libponyrt/mem/pool.h"
 
@@ -135,18 +138,32 @@ static void init_runtime(compile_t* c)
   c->str_div = stringtab("div");
   c->str_mod = stringtab("mod");
   c->str_neg = stringtab("neg");
+  c->str_add_unsafe = stringtab("add_unsafe");
+  c->str_sub_unsafe = stringtab("sub_unsafe");
+  c->str_mul_unsafe = stringtab("mul_unsafe");
+  c->str_div_unsafe = stringtab("div_unsafe");
+  c->str_mod_unsafe = stringtab("mod_unsafe");
+  c->str_neg_unsafe = stringtab("neg_unsafe");
   c->str_and = stringtab("op_and");
   c->str_or = stringtab("op_or");
   c->str_xor = stringtab("op_xor");
   c->str_not = stringtab("op_not");
   c->str_shl = stringtab("shl");
   c->str_shr = stringtab("shr");
+  c->str_shl_unsafe = stringtab("shl_unsafe");
+  c->str_shr_unsafe = stringtab("shr_unsafe");
   c->str_eq = stringtab("eq");
   c->str_ne = stringtab("ne");
   c->str_lt = stringtab("lt");
   c->str_le = stringtab("le");
   c->str_ge = stringtab("ge");
   c->str_gt = stringtab("gt");
+  c->str_eq_unsafe = stringtab("eq_unsafe");
+  c->str_ne_unsafe = stringtab("ne_unsafe");
+  c->str_lt_unsafe = stringtab("lt_unsafe");
+  c->str_le_unsafe = stringtab("le_unsafe");
+  c->str_ge_unsafe = stringtab("ge_unsafe");
+  c->str_gt_unsafe = stringtab("gt_unsafe");
 
   c->str_this = stringtab("this");
   c->str_create = stringtab("create");
@@ -340,9 +357,7 @@ static void init_runtime(compile_t* c)
   LLVMSetInaccessibleMemOrArgMemOnly(value);
 #  endif
   LLVMSetReturnNoAlias(value);
-#  if PONY_LLVM >= 307
   LLVMSetDereferenceableOrNull(value, 0, HEAP_MIN);
-#  endif
 #endif
 
   // i8* pony_alloc_small(i8*, i32)
@@ -409,9 +424,7 @@ static void init_runtime(compile_t* c)
   LLVMSetInaccessibleMemOrArgMemOnly(value);
 #  endif
   LLVMSetReturnNoAlias(value);
-#  if PONY_LLVM >= 307
   LLVMSetDereferenceableOrNull(value, 0, HEAP_MIN);
-#  endif
 #endif
 
   // i8* pony_alloc_final(i8*, intptr, c->final_fn)
@@ -434,9 +447,7 @@ static void init_runtime(compile_t* c)
   LLVMSetInaccessibleMemOrArgMemOnly(value);
 #  endif
   LLVMSetReturnNoAlias(value);
-#  if PONY_LLVM >= 307
   LLVMSetDereferenceableOrNull(value, 0, HEAP_MIN);
-#  endif
 #endif
 
   // $message* pony_alloc_msg(i32, i32)
@@ -669,9 +680,10 @@ static void init_runtime(compile_t* c)
 #  endif
 #endif
 
-  // i32 pony_start(i32)
+  // i32 pony_start(i32, i32)
   params[0] = c->i32;
-  type = LLVMFunctionType(c->i32, params, 1, false);
+  params[1] = c->i32;
+  type = LLVMFunctionType(c->i32, params, 2, false);
   value = LLVMAddFunction(c->module, "pony_start", type);
 #if PONY_LLVM >= 309
   LLVMAddAttributeAtIndex(value, LLVMAttributeFunctionIndex, nounwind_attr);
@@ -762,6 +774,9 @@ static bool init_module(compile_t* c, ast_t* program, pass_opt_t* opt)
   c->reach = reach_new();
   c->tbaa_mds = tbaa_metadatas_new();
 
+  // This gets a real value once the instance of None has been generated.
+  c->none_instance = NULL;
+
   return true;
 }
 
@@ -808,7 +823,7 @@ bool codegen_merge_runtime_bitcode(compile_t* c)
   return true;
 }
 
-static void codegen_cleanup(compile_t* c)
+void codegen_cleanup(compile_t* c)
 {
   while(c->frame != NULL)
     pop_frame(c);
@@ -847,6 +862,16 @@ bool codegen_init(pass_opt_t* opt)
   LLVMInitializeCodeGen(passreg);
   LLVMInitializeTarget(passreg);
 
+  if(opt->features != NULL)
+  {
+    opt->features = LLVMCreateMessage(opt->features);
+  } else {
+    if((opt->cpu == NULL) && (opt->triple == NULL))
+      opt->features = LLVMGetHostCPUFeatures();
+    else
+      opt->features = LLVMCreateMessage("");
+  }
+
   // Default triple, cpu and features.
   if(opt->triple != NULL)
   {
@@ -864,11 +889,6 @@ bool codegen_init(pass_opt_t* opt)
     opt->cpu = LLVMCreateMessage(opt->cpu);
   else
     opt->cpu = LLVMGetHostCPUName();
-
-  if(opt->features != NULL)
-    opt->features = LLVMCreateMessage(opt->features);
-  else
-    opt->features = LLVMCreateMessage("");
 
   return true;
 }
@@ -908,6 +928,43 @@ bool codegen(ast_t* program, pass_opt_t* opt)
 
   codegen_cleanup(&c);
   return ok;
+}
+
+bool codegen_gen_test(compile_t* c, ast_t* program, pass_opt_t* opt)
+{
+  memset(c, 0, sizeof(compile_t));
+
+  if(!init_module(c, program, opt))
+    return false;
+
+  init_runtime(c);
+
+  const char* main_actor = c->str_Main;
+  ast_t* package = ast_child(program);
+  ast_t* main_def = ast_get(package, main_actor, NULL);
+
+  if(main_def == NULL)
+    return false;
+
+  ast_t* main_ast = type_builtin(opt, main_def, main_actor);
+
+  if(lookup(opt, main_ast, main_ast, c->str_create) == NULL)
+    return false;
+
+  reach(c->reach, main_ast, c->str_create, NULL, opt);
+
+  if(opt->limit == PASS_REACH)
+    return true;
+
+  paint(&c->reach->types);
+
+  if(opt->limit == PASS_PAINT)
+    return true;
+
+  if(!gentypes(c))
+    return false;
+
+  return true;
 }
 
 LLVMValueRef codegen_addfun(compile_t* c, const char* name, LLVMTypeRef type)
@@ -1001,10 +1058,11 @@ void codegen_local_lifetime_start(compile_t* c, const char* name)
 
   compile_local_t k;
   k.name = name;
+  size_t index = HASHMAP_UNKNOWN;
 
   while(frame != NULL)
   {
-    compile_local_t* p = compile_locals_get(&frame->locals, &k);
+    compile_local_t* p = compile_locals_get(&frame->locals, &k, &index);
 
     if(p != NULL && !p->alive)
     {
@@ -1026,10 +1084,11 @@ void codegen_local_lifetime_end(compile_t* c, const char* name)
 
   compile_local_t k;
   k.name = name;
+  size_t index = HASHMAP_UNKNOWN;
 
   while(frame != NULL)
   {
-    compile_local_t* p = compile_locals_get(&frame->locals, &k);
+    compile_local_t* p = compile_locals_get(&frame->locals, &k, &index);
 
     if(p != NULL && p->alive)
     {
@@ -1126,10 +1185,11 @@ LLVMValueRef codegen_getlocal(compile_t* c, const char* name)
 
   compile_local_t k;
   k.name = name;
+  size_t index = HASHMAP_UNKNOWN;
 
   while(frame != NULL)
   {
-    compile_local_t* p = compile_locals_get(&frame->locals, &k);
+    compile_local_t* p = compile_locals_get(&frame->locals, &k, &index);
 
     if(p != NULL)
       return p->alloca;

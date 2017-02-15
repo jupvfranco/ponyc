@@ -6,7 +6,8 @@
 
 static bool check_partial_function_call(pass_opt_t* opt, ast_t* ast)
 {
-  assert((ast_id(ast) == TK_FUNREF) || (ast_id(ast) == TK_NEWREF));
+  assert((ast_id(ast) == TK_FUNREF) || (ast_id(ast) == TK_FUNCHAIN) ||
+    (ast_id(ast) == TK_NEWREF));
   AST_GET_CHILDREN(ast, receiver, method);
 
   // Receiver might be wrapped in another funref/newref
@@ -23,6 +24,8 @@ static bool check_partial_function_call(pass_opt_t* opt, ast_t* ast)
   token_id can_error = ast_id(ast_childidx(method_def, 5));
   if(can_error == TK_QUESTION)
     ast_seterror(ast);
+
+  ast_free_unattached(method_def);
 
   return true;
 }
@@ -63,7 +66,8 @@ static bool check_partial_ffi_call(pass_opt_t* opt, ast_t* ast)
 
 bool verify_function_call(pass_opt_t* opt, ast_t* ast)
 {
-  assert((ast_id(ast) == TK_FUNREF) || (ast_id(ast) == TK_NEWREF));
+  assert((ast_id(ast) == TK_FUNREF) || (ast_id(ast) == TK_FUNCHAIN) ||
+    (ast_id(ast) == TK_NEWREF));
 
   ast_inheritflags(ast);
   ast_setmightsend(ast);
@@ -77,7 +81,8 @@ bool verify_function_call(pass_opt_t* opt, ast_t* ast)
 bool verify_behaviour_call(pass_opt_t* opt, ast_t* ast)
 {
   (void)opt;
-  assert((ast_id(ast) == TK_BEREF) || (ast_id(ast) == TK_NEWBEREF));
+  assert((ast_id(ast) == TK_BEREF) || (ast_id(ast) == TK_BECHAIN) ||
+    (ast_id(ast) == TK_NEWBEREF));
 
   ast_inheritflags(ast);
   ast_setsend(ast);

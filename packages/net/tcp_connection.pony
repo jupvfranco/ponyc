@@ -4,7 +4,11 @@ use @pony_asio_event_create[AsioEventID](owner: AsioEventNotify, fd: U32,
   flags: U32, nsec: U64, noisy: Bool)
 use @pony_asio_event_fd[U32](event: AsioEventID)
 use @pony_asio_event_unsubscribe[None](event: AsioEventID)
+use @pony_asio_event_resubscribe_read[None](event: AsioEventID)
+use @pony_asio_event_resubscribe_write[None](event: AsioEventID)
 use @pony_asio_event_destroy[None](event: AsioEventID)
+use @pony_asio_event_set_writeable[None](event: AsioEventID, writeable: Bool)
+use @pony_asio_event_set_readable[None](event: AsioEventID, readable: Bool)
 
 type TCPConnectionAuth is (AmbientAuth | NetAuth | TCPAuth | TCPConnectAuth)
 
@@ -39,6 +43,9 @@ actor TCPConnection
           recover MyTCPConnectionNotify(env.out) end, "", "8989")
       end
   ```
+
+  Note: when writing to the connection data will be silently discarded if the
+  connection has not yet been established.
 
   ## Backpressure support
 
@@ -177,7 +184,7 @@ actor TCPConnection
     Connect via IPv4 or IPv6. If `from` is a non-empty string, the connection
     will be made from the specified interface.
     """
-    _read_buf = recover Array[U8].undefined(init_size) end
+    _read_buf = recover Array[U8].>undefined(init_size) end
     _next_size = init_size
     _max_size = max_size
     _notify = consume notify
@@ -193,7 +200,7 @@ actor TCPConnection
     """
     Connect via IPv4.
     """
-    _read_buf = recover Array[U8].undefined(init_size) end
+    _read_buf = recover Array[U8].>undefined(init_size) end
     _next_size = init_size
     _max_size = max_size
     _notify = consume notify
@@ -209,7 +216,7 @@ actor TCPConnection
     """
     Connect via IPv6.
     """
-    _read_buf = recover Array[U8].undefined(init_size) end
+    _read_buf = recover Array[U8].>undefined(init_size) end
     _next_size = init_size
     _max_size = max_size
     _notify = consume notify
@@ -228,21 +235,34 @@ actor TCPConnection
     _notify = consume notify
     _connect_count = 0
     _fd = fd
-    _event = @pony_asio_event_create(this, fd, AsioEvent.read_write(), 0, true)
+    ifdef not windows then
+      _event = @pony_asio_event_create(this, fd,
+        AsioEvent.read_write_oneshot(), 0, true)
+    else
+      _event = @pony_asio_event_create(this, fd,
+        AsioEvent.read_write(), 0, true)
+    end
     _connected = true
+    ifdef not windows then
+      @pony_asio_event_set_writeable(_event, true)
+    end
     _writeable = true
-    _read_buf = recover Array[U8].undefined(init_size) end
+    _read_buf = recover Array[U8].>undefined(init_size) end
     _next_size = init_size
     _max_size = max_size
 
     _notify.accepted(this)
+
+    _readable = true
     _queue_read()
+    _pending_reads()
 
   be write(data: ByteSeq) =>
     """
-    Write a single sequence of bytes.
+    Write a single sequence of bytes. Data will be silently discarded if the
+    connection has not yet been established though.
     """
-    if not _closed then
+    if _connected and not _closed then
       _in_sent = true
       write_final(_notify.sent(this, data))
       _in_sent = false
@@ -250,9 +270,10 @@ actor TCPConnection
 
   be writev(data: ByteSeqIter) =>
     """
-    Write a sequence of sequences of bytes.
+    Write a sequence of sequences of bytes. Data will be silently discarded if
+    the connection has not yet been established though.
     """
-    if not _closed then
+    if _connected and not _closed then
       _in_sent = true
 
       for bytes in _notify.sentv(this, data).values() do
@@ -274,6 +295,7 @@ actor TCPConnection
     Start reading off this TCPConnection again after having been muted.
     """
     _muted = false
+    _pending_reads()
 
   be set_notify(notify: TCPConnectionNotify iso) =>
     """
@@ -287,19 +309,19 @@ actor TCPConnection
     """
     close()
 
-  fun local_address(): IPAddress =>
+  fun local_address(): NetAddress =>
     """
     Return the local IP address.
     """
-    let ip = recover IPAddress end
+    let ip = recover NetAddress end
     @pony_os_sockname[Bool](_fd, ip)
     ip
 
-  fun remote_address(): IPAddress =>
+  fun remote_address(): NetAddress =>
     """
     Return the remote IP address.
     """
-    let ip = recover IPAddress end
+    let ip = recover NetAddress end
     @pony_os_peername[Bool](_fd, ip)
     ip
 
@@ -351,9 +373,11 @@ actor TCPConnection
             _event = event
             _connected = true
             _writeable = true
+            _readable = true
 
             _notify.connected(this)
             _queue_read()
+            _pending_reads()
 
             // Don't call _complete_writes, as Windows will see this as a
             // closed connection.
@@ -407,10 +431,11 @@ actor TCPConnection
   fun ref write_final(data: ByteSeq) =>
     """
     Write as much as possible to the socket. Set `_writeable` to `false` if not
-    everything was written. On an error, close the connection. This is for
-    data that has already been transformed by the notifier.
+    everything was written. On an error, close the connection. This is for data
+    that has already been transformed by the notifier. Data will be silently
+    discarded if the connection has not yet been established though.
     """
-    if not _closed then
+    if _connected and not _closed then
       ifdef windows then
         try
           // Add an IOCP write.
@@ -504,7 +529,7 @@ actor TCPConnection
           if (len + offset) < data.size() then
             // Send remaining data later.
             node() = (data, offset + len)
-            _writeable = false
+            _apply_backpressure()
           else
             // This chunk has been fully sent.
             _pending.shift()
@@ -589,7 +614,6 @@ actor TCPConnection
 
         while _readable and not _shutdown_peer do
           if _muted then
-            _read_again()
             return
           end
 
@@ -602,7 +626,11 @@ actor TCPConnection
           match len
           | 0 =>
             // Would block, try again later.
+            // this is safe because asio thread isn't currently subscribed
+            // for a read event so will not be writing to the readable flag
+            @pony_asio_event_set_readable(_event, false)
             _readable = false
+            @pony_asio_event_resubscribe_read(_event)
             return
           | _next_size =>
             // Increase the read buffer size.
@@ -726,6 +754,8 @@ actor TCPConnection
       _pending.clear()
       _readable = false
       _writeable = false
+      @pony_asio_event_set_readable(_event, false)
+      @pony_asio_event_set_writeable(_event, false)
     end
 
     // On windows, this will also cancel all outstanding IOCP operations.
@@ -739,6 +769,11 @@ actor TCPConnection
   fun ref _apply_backpressure() =>
     ifdef not windows then
       _writeable = false
+
+      // this is safe because asio thread isn't currently subscribed
+      // for a write event so will not be writing to the readable flag
+      @pony_asio_event_set_writeable(_event, false)
+      @pony_asio_event_resubscribe_write(_event)
     end
 
     _notify.throttled(this)

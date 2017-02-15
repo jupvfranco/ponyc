@@ -125,37 +125,6 @@ static bool constructor_type(pass_opt_t* opt, ast_t* ast, token_id cap,
   return false;
 }
 
-static bool is_receiver_safe(typecheck_t* t, ast_t* ast)
-{
-  switch(ast_id(ast))
-  {
-     case TK_THIS:
-     case TK_FLETREF:
-     case TK_FVARREF:
-     case TK_EMBEDREF:
-     case TK_PARAMREF:
-     {
-       ast_t* type = ast_type(ast);
-       return sendable(type);
-     };
-     case TK_LETREF:
-     case TK_VARREF:
-     {
-       const char* name = ast_name(ast_child(ast));
-       sym_status_t status;
-       ast_t* def = ast_get(ast, name, &status);
-       ast_t* def_recover = ast_nearest(def, TK_RECOVER);
-       if(t->frame->recover == def_recover)
-         return true;
-       ast_t* type = ast_type(ast);
-       return sendable(type);
-     }
-     default:
-       // Unsafe receivers inside expressions are catched before we get there.
-       return true;
-  }
-}
-
 static bool method_access(pass_opt_t* opt, ast_t* ast, ast_t* method)
 {
   AST_GET_CHILDREN(method, cap, id, typeparams, params, result, can_error,
@@ -181,35 +150,6 @@ static bool method_access(pass_opt_t* opt, ast_t* ast, ast_t* method)
       break;
 
     case TK_FUN:
-      if(opt->check.frame->recover != NULL)
-      {
-        AST_GET_CHILDREN(ast, left, right);
-        bool safe = is_receiver_safe(&opt->check, left);
-        if(!safe)
-        {
-          ast_t* param = ast_child(params);
-          bool params_sendable = true;
-          while(param != NULL)
-          {
-            if(!sendable(ast_childidx(param, 1)))
-            {
-              params_sendable = false;
-              break;
-            }
-            param = ast_sibling(param);
-          }
-          if(!params_sendable || !sendable(result))
-          {
-            errorframe_t frame = NULL;
-            ast_error_frame(&frame, ast, "can't call method on non-sendable "
-              "object inside of a recover expression");
-            ast_error_frame(&frame, method, "this would be possible if the "
-              "parameters and return value were all sendable");
-            errorframe_report(&frame, opt->check.errors);
-            return false;
-          }
-        }
-      }
       ast_setid(ast, TK_FUNREF);
       break;
 
@@ -512,6 +452,8 @@ bool expr_qualify(pass_opt_t* opt, ast_t** astp)
     case TK_NEWAPP:
     case TK_BEAPP:
     case TK_FUNAPP:
+    case TK_BECHAIN:
+    case TK_FUNCHAIN:
     {
       // Qualify the function.
       assert(ast_id(type) == TK_FUNTYPE);
@@ -547,7 +489,7 @@ bool expr_qualify(pass_opt_t* opt, ast_t** astp)
   return expr_qualify(opt, astp);
 }
 
-static bool dot_or_tilde(pass_opt_t* opt, ast_t** astp)
+static bool entity_access(pass_opt_t* opt, ast_t** astp)
 {
   ast_t* ast = *astp;
 
@@ -588,12 +530,12 @@ static bool dot_or_tilde(pass_opt_t* opt, ast_t** astp)
 
 bool expr_dot(pass_opt_t* opt, ast_t** astp)
 {
-  return dot_or_tilde(opt, astp);
+  return entity_access(opt, astp);
 }
 
 bool expr_tilde(pass_opt_t* opt, ast_t** astp)
 {
-  if(!dot_or_tilde(opt, astp))
+  if(!entity_access(opt, astp))
     return false;
 
   ast_t* ast = *astp;
@@ -631,6 +573,48 @@ bool expr_tilde(pass_opt_t* opt, ast_t** astp)
     case TK_EMBEDREF:
       ast_error(opt->check.errors, ast,
         "can't do partial application of a field");
+      return false;
+
+    default: {}
+  }
+
+  assert(0);
+  return false;
+}
+
+bool expr_chain(pass_opt_t* opt, ast_t** astp)
+{
+  if(!entity_access(opt, astp))
+    return false;
+
+  ast_t* ast = *astp;
+
+  switch(ast_id(ast))
+  {
+    case TK_BEREF:
+      ast_setid(ast, TK_BECHAIN);
+      return true;
+
+    case TK_FUNREF:
+      ast_setid(ast, TK_FUNCHAIN);
+      return true;
+
+    case TK_NEWREF:
+    case TK_NEWBEREF:
+      ast_error(opt->check.errors, ast,
+        "can't do method chaining on a constructor");
+      return false;
+
+    case TK_TYPEREF:
+      ast_error(opt->check.errors, ast,
+        "can't do method chaining on a package");
+      return false;
+
+    case TK_FVARREF:
+    case TK_FLETREF:
+    case TK_EMBEDREF:
+      ast_error(opt->check.errors, ast,
+        "can't do method chaining on a field");
       return false;
 
     default: {}

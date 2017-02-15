@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #include <platform.h>
+#include <dtrace.h>
 
 typedef struct chunk_t
 {
@@ -61,13 +62,7 @@ static double heap_nextgc_factor = 2.0;
 
 static void large_pagemap(char* m, size_t size, chunk_t* chunk)
 {
-  char* end = m + size;
-
-  while(m < end)
-  {
-    ponyint_pagemap_set(m, chunk);
-    m += POOL_ALIGN;
-  }
+  ponyint_pagemap_set_bulk(m, chunk, size);
 }
 
 static void clear_chunk(chunk_t* chunk, uint32_t mark)
@@ -180,6 +175,7 @@ void ponyint_heap_setnextgcfactor(double factor)
   if(factor < 1.0)
     factor = 1.0;
 
+  DTRACE1(GC_THRESHOLD, factor);
   heap_nextgc_factor = factor;
 }
 
@@ -223,7 +219,7 @@ void* ponyint_heap_alloc_small(pony_actor_t* actor, heap_t* heap,
   {
     // Clear and use the first available slot.
     uint32_t slots = chunk->slots;
-    uint32_t bit = __pony_ffs(slots) - 1;
+    uint32_t bit = __pony_ctz(slots);
     slots &= ~(1 << bit);
 
     m = chunk->m + (bit << HEAP_MINBITS);

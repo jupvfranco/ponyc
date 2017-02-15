@@ -19,10 +19,6 @@
 #include <llvm/Linker/Linker.h>
 #include <llvm/Support/SourceMgr.h>
 
-#if PONY_LLVM < 307
-#include <llvm/Support/Host.h>
-#endif
-
 #ifdef _MSC_VER
 #  pragma warning(pop)
 #endif
@@ -37,9 +33,57 @@ char* LLVMGetHostCPUName()
   return strdup(sys::getHostCPUName().str().c_str());
 }
 
+char* LLVMGetHostCPUFeatures()
+{
+  StringMap<bool> features;
+  bool got_features = sys::getHostCPUFeatures(features);
+  assert(got_features);
+  (void)got_features;
+
+  // Calculate the size of buffer that will be needed to return all features.
+  size_t buf_size = 0;
+  for(auto it = features.begin(); it != features.end(); it++)
+    buf_size += (*it).getKey().str().length() + 2; // plus +/- char and ,/null
+
+  char* buf = (char*)malloc(buf_size);
+  assert(buf != NULL);
+  buf[0] = 0;
+
+  for(auto it = features.begin(); it != features.end();)
+  {
+    if((*it).getValue())
+      strcat(buf, "+");
+    else
+      strcat(buf, "-");
+
+    strcat(buf, (*it).getKey().str().c_str());
+
+    it++;
+    if(it != features.end())
+      strcat(buf, ",");
+  }
+
+  return buf;
+}
+
 void LLVMSetUnsafeAlgebra(LLVMValueRef inst)
 {
   unwrap<Instruction>(inst)->setHasUnsafeAlgebra(true);
+}
+
+void LLVMSetNoUnsignedWrap(LLVMValueRef inst)
+{
+  unwrap<BinaryOperator>(inst)->setHasNoUnsignedWrap(true);
+}
+
+void LLVMSetNoSignedWrap(LLVMValueRef inst)
+{
+  unwrap<BinaryOperator>(inst)->setHasNoSignedWrap(true);
+}
+
+void LLVMSetIsExact(LLVMValueRef inst)
+{
+  unwrap<BinaryOperator>(inst)->setIsExact(true);
 }
 
 #if PONY_LLVM < 309
@@ -58,7 +102,6 @@ void LLVMSetDereferenceable(LLVMValueRef fun, uint32_t i, size_t size)
   f->addAttributes(i, AttributeSet::get(f->getContext(), i, attr));
 }
 
-#  if PONY_LLVM >= 307
 void LLVMSetDereferenceableOrNull(LLVMValueRef fun, uint32_t i, size_t size)
 {
   Function* f = unwrap<Function>(fun);
@@ -68,7 +111,6 @@ void LLVMSetDereferenceableOrNull(LLVMValueRef fun, uint32_t i, size_t size)
 
   f->addAttributes(i, AttributeSet::get(f->getContext(), i, attr));
 }
-#  endif
 
 #  if PONY_LLVM >= 308
 void LLVMSetCallInaccessibleMemOnly(LLVMValueRef inst)
@@ -104,38 +146,27 @@ void LLVMSetCallInaccessibleMemOrArgMemOnly(LLVMValueRef inst)
 #  endif
 #endif
 
-#if PONY_LLVM < 307
-static fltSemantics const* float_semantics(Type* t)
-{
-  if (t->isHalfTy())
-    return &APFloat::IEEEhalf;
-  if (t->isFloatTy())
-    return &APFloat::IEEEsingle;
-  if (t->isDoubleTy())
-    return &APFloat::IEEEdouble;
-  if (t->isX86_FP80Ty())
-    return &APFloat::x87DoubleExtended;
-  if (t->isFP128Ty())
-    return &APFloat::IEEEquad;
-
-  assert(t->isPPC_FP128Ty() && "Unknown FP format");
-  return &APFloat::PPCDoubleDouble;
-}
-#endif
-
 LLVMValueRef LLVMConstNaN(LLVMTypeRef type)
 {
   Type* t = unwrap<Type>(type);
 
-#if PONY_LLVM >= 307
   Value* nan = ConstantFP::getNaN(t);
+  return wrap(nan);
+}
+
+LLVMValueRef LLVMConstInf(LLVMTypeRef type, bool negative)
+{
+  Type* t = unwrap<Type>(type);
+
+#if PONY_LLVM >= 307
+  Value* inf = ConstantFP::getInfinity(t, negative);
 #else
   fltSemantics const& sem = *float_semantics(t->getScalarType());
-  APFloat flt = APFloat::getNaN(sem, false, 0);
-  Value* nan = ConstantFP::get(t->getContext(), flt);
+  APFloat flt = APFloat::getInf(sem, negative);
+  Value* inf = ConstantFP::get(t->getContext(), flt);
 #endif
 
-  return wrap(nan);
+  return wrap(inf);
 }
 
 #if PONY_LLVM < 308

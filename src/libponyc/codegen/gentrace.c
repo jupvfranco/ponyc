@@ -356,6 +356,76 @@ static trace_t trace_type(ast_t* type)
   return TRACE_DYNAMIC;
 }
 
+static trace_t trace_type_dst_cap(trace_t src_trace, trace_t dst_trace)
+{
+  // A trace method suitable for tracing src with the refcap of dst.
+  switch(src_trace)
+  {
+    case TRACE_NONE:
+    case TRACE_MACHINE_WORD:
+    case TRACE_MAYBE:
+    case TRACE_PRIMITIVE:
+    case TRACE_DYNAMIC:
+    case TRACE_TUPLE:
+    case TRACE_TAG_KNOWN:
+    case TRACE_TAG_UNKNOWN:
+      return src_trace;
+
+    case TRACE_VAL_KNOWN:
+      switch(dst_trace)
+      {
+        case TRACE_TAG_KNOWN:
+        case TRACE_TAG_UNKNOWN:
+          return TRACE_TAG_KNOWN;
+
+        default:
+          return TRACE_VAL_KNOWN;
+      }
+
+    case TRACE_VAL_UNKNOWN:
+      switch(dst_trace)
+      {
+        case TRACE_TAG_UNKNOWN:
+          return TRACE_TAG_UNKNOWN;
+
+        default:
+          return TRACE_VAL_UNKNOWN;
+      }
+
+    case TRACE_MUT_KNOWN:
+      switch(dst_trace)
+      {
+        case TRACE_TAG_KNOWN:
+        case TRACE_TAG_UNKNOWN:
+          return TRACE_TAG_KNOWN;
+
+        case TRACE_VAL_KNOWN:
+        case TRACE_VAL_UNKNOWN:
+          return TRACE_VAL_KNOWN;
+
+        default:
+          return TRACE_MUT_KNOWN;
+      }
+
+    case TRACE_MUT_UNKNOWN:
+      switch(dst_trace)
+      {
+        case TRACE_TAG_UNKNOWN:
+          return TRACE_TAG_UNKNOWN;
+
+        case TRACE_VAL_UNKNOWN:
+          return TRACE_VAL_UNKNOWN;
+
+        default:
+          return TRACE_MUT_UNKNOWN;
+      }
+
+    default:
+      assert(0);
+      return src_trace;
+  }
+}
+
 static void trace_maybe(compile_t* c, LLVMValueRef ctx, LLVMValueRef object,
   ast_t* type)
 {
@@ -406,7 +476,7 @@ static void trace_tuple(compile_t* c, LLVMValueRef ctx, LLVMValueRef value,
   int i = 0;
 
   // We're a tuple, determined statically.
-  if(dst_type != NULL)
+  if((dst_type != NULL) && (ast_id(dst_type) == TK_TUPLETYPE))
   {
     ast_t* src_child = ast_child(src_type);
     ast_t* dst_child = ast_child(dst_type);
@@ -458,7 +528,7 @@ static void trace_dynamic_tuple(compile_t* c, LLVMValueRef ctx,
   ast_t* dontcare = ast_from(type, TK_TUPLETYPE);
 
   for(size_t i = 0; i < cardinality; i++)
-    ast_append(dontcare, ast_from(type, TK_DONTCARE));
+    ast_append(dontcare, ast_from(type, TK_DONTCARETYPE));
 
   // Replace our type in the tuple type with the "don't care" type.
   bool in_tuple = (tuple != NULL);
@@ -588,7 +658,7 @@ static void trace_dynamic_nominal(compile_t* c, LLVMValueRef ctx,
   if(tuple != NULL)
   {
     // We are a tuple element. Our type is in the correct position in the
-    // tuple, everything else is TK_DONTCARE.
+    // tuple, everything else is TK_DONTCARETYPE.
     if(is_matchtype(orig, tuple, c->opt) != MATCHTYPE_ACCEPT)
       return;
   } else {
@@ -755,7 +825,11 @@ void gentrace_prototype(compile_t* c, reach_type_t* t)
 void gentrace(compile_t* c, LLVMValueRef ctx, LLVMValueRef value,
   ast_t* src_type, ast_t* dst_type)
 {
-  switch(trace_type(src_type))
+  trace_t trace_method = trace_type(src_type);
+  if(dst_type != NULL)
+    trace_method = trace_type_dst_cap(trace_method, trace_type(dst_type));
+
+  switch(trace_method)
   {
     case TRACE_NONE:
       assert(0);

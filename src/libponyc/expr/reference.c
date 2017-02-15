@@ -225,27 +225,10 @@ bool expr_param(pass_opt_t* opt, ast_t* ast)
 
 bool expr_field(pass_opt_t* opt, ast_t* ast)
 {
-  AST_GET_CHILDREN(ast, id, type, init, delegates);
-  bool ok = true;
-
-  for(ast_t* del = ast_child(delegates); del != NULL; del = ast_sibling(del))
-  {
-    errorframe_t err = NULL;
-
-    if(!is_subtype(type, del, &err, opt))
-    {
-      errorframe_t err2 = NULL;
-      ast_error_frame(&err2, ast, "field not a subtype of delegate");
-      errorframe_append(&err2, &err);
-      errorframe_report(&err2, opt->check.errors);
-      ok = false;
-    }
-  }
-
-  if(ok)
-    ast_settype(ast, type);
-
-  return ok;
+  (void)opt;
+  AST_GET_CHILDREN(ast, id, type, init);
+  ast_settype(ast, type);
+  return true;
 }
 
 bool expr_fieldref(pass_opt_t* opt, ast_t* ast, ast_t* find, token_id tid)
@@ -528,6 +511,72 @@ static const char* suggest_alt_name(ast_t* ast, const char* name)
   return NULL;
 }
 
+static bool is_legal_dontcare(ast_t* ast)
+{
+  // We either are the LHS of an assignment or a tuple element. That tuple must
+  // either be a pattern or the LHS of an assignment. It can be embedded in
+  // other tuples, which may appear in sequences.
+
+  // '_' may be wrapped in a sequence.
+  ast_t* parent = ast_parent(ast);
+  if(ast_id(parent) == TK_SEQ)
+    parent = ast_parent(parent);
+
+  switch(ast_id(parent))
+  {
+    case TK_ASSIGN:
+    {
+      AST_GET_CHILDREN(parent, right, left);
+      if(ast == left)
+        return true;
+      return false;
+    }
+
+    case TK_TUPLE:
+    {
+      ast_t* grandparent = ast_parent(parent);
+
+      while((ast_id(grandparent) == TK_TUPLE) ||
+        (ast_id(grandparent) == TK_SEQ))
+      {
+        parent = grandparent;
+        grandparent = ast_parent(parent);
+      }
+
+      switch(ast_id(grandparent))
+      {
+        case TK_ASSIGN:
+        {
+          AST_GET_CHILDREN(grandparent, right, left);
+
+          if(parent == left)
+            return true;
+
+          break;
+        }
+
+        case TK_CASE:
+        {
+          AST_GET_CHILDREN(grandparent, pattern, guard, body);
+
+          if(parent == pattern)
+            return true;
+
+          break;
+        }
+
+        default: {}
+      }
+
+      break;
+    }
+
+    default: {}
+  }
+
+  return false;
+}
+
 bool expr_reference(pass_opt_t* opt, ast_t** astp)
 {
   typecheck_t* t = &opt->check;
@@ -535,6 +584,21 @@ bool expr_reference(pass_opt_t* opt, ast_t** astp)
 
   // Everything we reference must be in scope.
   const char* name = ast_name(ast_child(ast));
+
+  if(is_name_dontcare(name))
+  {
+    if(is_result_needed(ast) && !is_legal_dontcare(ast))
+    {
+      ast_error(opt->check.errors, ast, "can't read from '_'");
+      return false;
+    }
+
+    ast_t* type = ast_from(ast, TK_DONTCARETYPE);
+    ast_settype(ast, type);
+    ast_setid(ast, TK_DONTCAREREF);
+
+    return true;
+  }
 
   sym_status_t status;
   ast_t* def = ast_get(ast, name, &status);
@@ -632,9 +696,9 @@ bool expr_reference(pass_opt_t* opt, ast_t** astp)
 
       if(!sendable(type) && (t->frame->recover != NULL))
       {
-        ast_error(opt->check.errors, ast, "can't access a non-sendable "
-          "parameter from inside a recover expression");
-        return false;
+        ast_t* parent = ast_parent(ast);
+        if((ast_id(parent) != TK_DOT) && (ast_id(parent) != TK_CHAIN))
+          type = set_cap_and_ephemeral(type, TK_TAG, TK_NONE);
       }
 
       // Get the type of the parameter and attach it to our reference.
@@ -716,10 +780,28 @@ bool expr_reference(pass_opt_t* opt, ast_t** astp)
 
           if(t->frame->recover != def_recover)
           {
-            ast_error(opt->check.errors, ast, "can't access a non-sendable "
-              "local defined outside of a recover expression from within "
-              "that recover expression");
-            return false;
+            ast_t* parent = ast_parent(ast);
+            if((ast_id(parent) != TK_DOT) && (ast_id(parent) != TK_CHAIN))
+              type = set_cap_and_ephemeral(type, TK_TAG, TK_NONE);
+
+            if(ast_id(ast) == TK_VARREF)
+            {
+              ast_t* current = ast;
+              while(ast_id(parent) != TK_RECOVER && ast_id(parent) != TK_ASSIGN)
+              {
+                current = parent;
+                parent = ast_parent(parent);
+              }
+              if(ast_id(parent) == TK_ASSIGN && ast_child(parent) != current)
+              {
+                ast_error(opt->check.errors, ast, "can't access a non-sendable "
+                  "local defined outside of a recover expression from within "
+                  "that recover epression");
+                ast_error_continue(opt->check.errors, parent, "this would be "
+                  "possible if the local wasn't assigned to");
+                return false;
+              }
+            }
           }
         }
       }
@@ -750,10 +832,12 @@ bool expr_local(pass_opt_t* opt, ast_t* ast)
   AST_GET_CHILDREN(ast, id, type);
   assert(type != NULL);
 
+  bool is_dontcare = is_name_dontcare(ast_name(id));
+
   if(ast_id(type) == TK_NONE)
   {
     // No type specified, infer it later
-    if(!is_assigned_to(ast, false))
+    if(!is_dontcare && !is_assigned_to(ast, false))
     {
       ast_error(opt->check.errors, ast,
         "locals must specify a type or be assigned a value");
@@ -770,6 +854,9 @@ bool expr_local(pass_opt_t* opt, ast_t* ast)
       return false;
     }
   }
+
+  if(is_dontcare)
+    ast_setid(ast, TK_DONTCARE);
 
   return true;
 }
@@ -885,60 +972,6 @@ bool expr_digestof(pass_opt_t* opt, ast_t* ast)
   return true;
 }
 
-bool expr_dontcare(pass_opt_t* opt, ast_t* ast)
-{
-  // We are a tuple element. That tuple must either be a pattern or the LHS
-  // of an assignment. It can be embedded in other tuples, which may appear
-  // in sequences.
-  ast_t* tuple = ast_parent(ast);
-
-  if(ast_id(tuple) == TK_TUPLE)
-  {
-    ast_t* parent = ast_parent(tuple);
-
-    while((ast_id(parent) == TK_TUPLE) || (ast_id(parent) == TK_SEQ))
-    {
-      tuple = parent;
-      parent = ast_parent(tuple);
-    }
-
-    switch(ast_id(parent))
-    {
-      case TK_ASSIGN:
-      {
-        AST_GET_CHILDREN(parent, right, left);
-
-        if(tuple == left)
-        {
-          ast_settype(ast, ast);
-          return true;
-        }
-
-        break;
-      }
-
-      case TK_CASE:
-      {
-        AST_GET_CHILDREN(parent, pattern, guard, body);
-
-        if(tuple == pattern)
-        {
-          ast_settype(ast, ast);
-          return true;
-        }
-
-        break;
-      }
-
-      default: {}
-    }
-  }
-
-  ast_error(opt->check.errors, ast, "the don't care token can only appear "
-    "in a tuple, either on the LHS of an assignment or in a pattern");
-  return false;
-}
-
 bool expr_this(pass_opt_t* opt, ast_t* ast)
 {
   typecheck_t* t = &opt->check;
@@ -966,7 +999,7 @@ bool expr_this(pass_opt_t* opt, ast_t* ast)
   if(!cap_sendable(cap) && (t->frame->recover != NULL))
   {
     ast_t* parent = ast_parent(ast);
-    if(ast_id(parent) != TK_DOT)
+    if((ast_id(parent) != TK_DOT) && (ast_id(parent) != TK_CHAIN))
       cap = TK_TAG;
   }
 
@@ -1043,6 +1076,8 @@ bool expr_this(pass_opt_t* opt, ast_t* ast)
 
         default: {}
       }
+
+      ast_free_unattached(find);
     }
   }
 

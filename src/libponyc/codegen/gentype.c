@@ -50,13 +50,16 @@ LLVMValueRef tbaa_metadata_for_type(compile_t* c, ast_t* type)
   const char* name = genname_type_and_cap(type);
   tbaa_metadata_t k;
   k.name = name;
-  tbaa_metadata_t* md = tbaa_metadatas_get(c->tbaa_mds, &k);
+  size_t index = HASHMAP_UNKNOWN;
+  tbaa_metadata_t* md = tbaa_metadatas_get(c->tbaa_mds, &k, &index);
   if(md != NULL)
     return md->metadata;
 
   md = POOL_ALLOC(tbaa_metadata_t);
   md->name = name;
-  tbaa_metadatas_put(c->tbaa_mds, md);
+  // didn't find it in the map but index is where we can put the
+  // new one without another search
+  tbaa_metadatas_putindex(c->tbaa_mds, md, index);
 
   LLVMValueRef params[3];
   params[0] = LLVMMDStringInContext(c->context, name, (unsigned)strlen(name));
@@ -86,13 +89,16 @@ LLVMValueRef tbaa_metadata_for_box_type(compile_t* c, const char* box_name)
 {
   tbaa_metadata_t k;
   k.name = box_name;
-  tbaa_metadata_t* md = tbaa_metadatas_get(c->tbaa_mds, &k);
+  size_t index = HASHMAP_UNKNOWN;
+  tbaa_metadata_t* md = tbaa_metadatas_get(c->tbaa_mds, &k, &index);
   if(md != NULL)
     return md->metadata;
 
   md = POOL_ALLOC(tbaa_metadata_t);
   md->name = box_name;
-  tbaa_metadatas_put(c->tbaa_mds, md);
+  // didn't find it in the map but index is where we can put the
+  // new one without another search
+  tbaa_metadatas_putindex(c->tbaa_mds, md, index);
 
   LLVMValueRef params[2];
   params[0] = LLVMMDStringInContext(c->context, box_name,
@@ -291,7 +297,11 @@ static void make_debug_info(compile_t* c, reach_type_t* t)
   else
     source = ast_source(t->ast);
 
-  t->di_file = LLVMDIBuilderCreateFile(c->di, source->file);
+  const char* file = source->file;
+  if(file == NULL)
+    file = "";
+
+  t->di_file = LLVMDIBuilderCreateFile(c->di, file);
 
   switch(t->underlying)
   {
@@ -397,6 +407,7 @@ static bool make_struct(compile_t* c, reach_type_t* t)
 {
   LLVMTypeRef type;
   int extra = 0;
+  bool packed = false;
 
   switch(t->underlying)
   {
@@ -411,12 +422,18 @@ static bool make_struct(compile_t* c, reach_type_t* t)
       break;
 
     case TK_STRUCT:
+    {
       // Pointer and Maybe will have no structure.
       if(t->structure == NULL)
         return true;
 
       type = t->structure;
+      ast_t* def = (ast_t*)ast_data(t->ast);
+      if(ast_has_annotation(def, "packed"))
+        packed = true;
+
       break;
+    }
 
     case TK_PRIMITIVE:
       // Machine words will have a primitive.
@@ -471,7 +488,7 @@ static bool make_struct(compile_t* c, reach_type_t* t)
     }
   }
 
-  LLVMStructSetBody(type, elements, t->field_count + extra, false);
+  LLVMStructSetBody(type, elements, t->field_count + extra, packed);
   ponyint_pool_free_size(buf_size, elements);
   return true;
 }
@@ -739,6 +756,12 @@ bool gentypes(compile_t* c)
     make_global_instance(c, t);
   }
 
+  // Cache the instance of None, which is used as the return value for
+  // behaviour calls.
+  t = reach_type_name(c->reach, "None");
+  assert(t != NULL);
+  c->none_instance = t->instance;
+
   if(c->opt->verbosity >= VERBOSITY_INFO)
     fprintf(stderr, " Function prototypes\n");
 
@@ -767,6 +790,8 @@ bool gentypes(compile_t* c)
     if(!genfun_method_bodies(c, t))
       return false;
   }
+
+  genfun_primitive_calls(c);
 
   if(c->opt->verbosity >= VERBOSITY_INFO)
     fprintf(stderr, " Descriptors\n");

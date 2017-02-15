@@ -35,49 +35,65 @@ typedef enum token_id
   TK_RPAREN,
   TK_LSQUARE,
   TK_RSQUARE,
+  TK_BACKSLASH,
 
   TK_COMMA,
   TK_ARROW,
   TK_DBLARROW,
   TK_DOT,
   TK_TILDE,
+  TK_CHAIN,
   TK_COLON,
   TK_SEMI,
   TK_ASSIGN,
 
   TK_PLUS,
+  TK_PLUS_TILDE,
   TK_MINUS,
+  TK_MINUS_TILDE,
   TK_MULTIPLY,
+  TK_MULTIPLY_TILDE,
   TK_DIVIDE,
+  TK_DIVIDE_TILDE,
   TK_MOD,
+  TK_MOD_TILDE,
   TK_AT,
 
   TK_LSHIFT,
+  TK_LSHIFT_TILDE,
   TK_RSHIFT,
+  TK_RSHIFT_TILDE,
 
   TK_LT,
+  TK_LT_TILDE,
   TK_LE,
+  TK_LE_TILDE,
   TK_GE,
+  TK_GE_TILDE,
   TK_GT,
+  TK_GT_TILDE,
 
   TK_EQ,
+  TK_EQ_TILDE,
   TK_NE,
+  TK_NE_TILDE,
 
   TK_PIPE,
   TK_ISECTTYPE,
   TK_EPHEMERAL,
-  TK_BORROWED,
+  TK_ALIASED,
 
   TK_QUESTION,
   TK_UNARY_MINUS,
+  TK_UNARY_MINUS_TILDE,
   TK_ELLIPSIS,
-  TK_DONTCARE,
   TK_CONSTANT,
 
   // Newline symbols, only used by lexer and parser
   TK_LPAREN_NEW,
   TK_LSQUARE_NEW,
   TK_MINUS_NEW,
+  TK_MINUS_TILDE_NEW,
 
   // Keywords
   TK_COMPILE_INTRINSIC,
@@ -93,7 +109,6 @@ typedef enum token_id
   TK_OBJECT,
   TK_LAMBDA,
 
-  TK_DELEGATE,
   TK_AS,
   TK_IS,
   TK_ISNT,
@@ -101,6 +116,7 @@ typedef enum token_id
   TK_VAR,
   TK_LET,
   TK_EMBED,
+  TK_DONTCARE,
   TK_NEW,
   TK_FUN,
   TK_BE,
@@ -190,6 +206,7 @@ typedef enum token_id
   TK_THISTYPE,
   TK_FUNTYPE,
   TK_LAMBDATYPE,
+  TK_DONTCARETYPE,
   TK_INFERTYPE,
   TK_ERRORTYPE,
 
@@ -219,6 +236,7 @@ typedef enum token_id
   TK_CASES,
   TK_CASE,
   TK_MATCH_CAPTURE,
+  TK_MATCH_DONTCARE,
 
   TK_REFERENCE,
   TK_PACKAGEREF,
@@ -234,9 +252,12 @@ typedef enum token_id
   TK_VARREF,
   TK_LETREF,
   TK_PARAMREF,
+  TK_DONTCAREREF,
   TK_NEWAPP,
   TK_BEAPP,
   TK_FUNAPP,
+  TK_BECHAIN,
+  TK_FUNCHAIN,
 
   // Pseudo tokens that never actually exist
   TK_NEWLINE,  // Used by parser macros
@@ -246,7 +267,7 @@ typedef enum token_id
   TK_TEST_NO_SEQ,
   TK_TEST_SEQ_SCOPE,
   TK_TEST_TRY_NO_CHECK,
-  TK_TEST_BORROWED,
+  TK_TEST_ALIASED,
   TK_TEST_UPDATEARG,
   TK_TEST_EXTRA
 } token_id;

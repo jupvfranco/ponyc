@@ -79,8 +79,7 @@ static ast_t* make_capture_field(pass_opt_t* opt, ast_t* capture)
     NODE(TK_FVAR,
       TREE(id_node)
       TREE(type)
-      TREE(value)
-      NONE));  // Delegate type
+      TREE(value)));
 
   return field;
 }
@@ -94,6 +93,7 @@ bool expr_lambda(pass_opt_t* opt, ast_t** astp)
 
   AST_GET_CHILDREN(ast, receiver_cap, name, t_params, params, captures,
     ret_type, raises, body, reference_cap);
+  ast_t* annotation = ast_consumeannotation(ast);
 
   ast_t* members = ast_from(ast, TK_MEMBERS);
   ast_t* last_member = NULL;
@@ -130,6 +130,7 @@ bool expr_lambda(pass_opt_t* opt, ast_t** astp)
   // Make the apply function
   BUILD(apply, ast,
     NODE(TK_FUN, AST_SCOPE
+      ANNOTATE(annotation)
       TREE(receiver_cap)
       ID(fn_name)
       TREE(t_params)

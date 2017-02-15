@@ -215,27 +215,36 @@ inline int snprintf(char* str, size_t size, const char* format, ...)
  */
 #ifdef PLATFORM_IS_CLANG_OR_GCC
 #  define __pony_popcount(X) __builtin_popcount((X))
-#  define __pony_ffs(X) __builtin_ffs((X))
-#  define __pony_ffsl(X) __builtin_ffsl((X))
+#  define __pony_ctz(X) __builtin_ctz((X))
+#  define __pony_ctzl(X) __builtin_ctzl((X))
 #  define __pony_clz(X) __builtin_clz((X))
 #  define __pony_clzl(X) __builtin_clzl((X))
 #else
 #  include <intrin.h>
 #  define __pony_popcount(X) __popcnt((X))
 
-inline uint32_t __pony_ffs(uint32_t x)
+inline uint32_t __pony_ctz(uint32_t x)
 {
   DWORD i = 0;
   _BitScanForward(&i, x);
-  return i + 1;
+  return i;
 }
 
-inline uint64_t __pony_ffsl(uint64_t x)
+#  ifdef PLATFORM_IS_ILP32
+inline uint32_t __pony_ctzl(uint32_t x)
+{
+  DWORD i = 0;
+  _BitScanForward(&i, x);
+  return i;
+}
+#  else
+inline uint64_t __pony_ctzl(uint64_t x)
 {
   DWORD i = 0;
   _BitScanForward64(&i, x);
-  return i + 1;
+  return i;
 }
+#  endif
 
 inline uint32_t __pony_clz(uint32_t x)
 {
@@ -244,12 +253,21 @@ inline uint32_t __pony_clz(uint32_t x)
   return 31 - i;
 }
 
+#  ifdef PLATFORM_IS_ILP32
+inline uint32_t __pony_clzl(uint32_t x)
+{
+  DWORD i = 0;
+  _BitScanReverse(&i, x);
+  return 31 - i;
+}
+#  else
 inline uint64_t __pony_clzl(uint64_t x)
 {
   DWORD i = 0;
   _BitScanReverse64(&i, x);
   return 63 - i;
 }
+#  endif
 
 #endif
 
@@ -257,18 +275,10 @@ inline uint64_t __pony_clzl(uint64_t x)
  *
  */
 #ifdef PLATFORM_IS_VISUAL_STUDIO
-#  define __pony_spec_align__(IDENT, BYTES) \
-              __declspec(align(BYTES)) IDENT
-#elif defined(PLATFORM_IS_CLANG_OR_GCC)
-#  define __pony_spec_align__(IDENT, BYTES) \
-              IDENT __attribute__((aligned (BYTES)))
-#endif
-
-#ifdef PLATFORM_IS_VISUAL_STUDIO
-#  define __pony_spec_malloc__(FUNC, ...) \
+#  define __pony_spec_malloc__(FUNC) \
             __declspec(restrict) FUNC
 #elif defined(PLATFORM_IS_CLANG_OR_GCC)
-#  define __pony_spec_malloc__(FUNC, ...) \
+#  define __pony_spec_malloc__(FUNC) \
             FUNC __attribute__((malloc))
 #endif
 

@@ -113,6 +113,7 @@ endif
 PONY_BUILD_DIR   ?= build/$(config)
 PONY_SOURCE_DIR  ?= src
 PONY_TEST_DIR ?= test
+PONY_BENCHMARK_DIR ?= benchmark
 
 ifdef use
   ifneq (,$(filter $(use), valgrind))
@@ -209,10 +210,6 @@ ifndef LLVM_CONFIG
     LLVM_CONFIG = llvm-config37
     LLVM_LINK = llvm-link37
     LLVM_OPT = opt37
-  else ifneq (,$(shell which llvm-config36 2> /dev/null))
-    LLVM_CONFIG = llvm-config36
-    LLVM_LINK = llvm-link36
-    LLVM_OPT = opt36
   else ifneq (,$(shell which /usr/local/opt/llvm/bin/llvm-config 2> /dev/null))
     LLVM_CONFIG = /usr/local/opt/llvm/bin/llvm-config
     LLVM_LINK = /usr/local/opt/llvm/bin/llvm-link
@@ -230,13 +227,12 @@ endif
 
 llvm_version := $(shell $(LLVM_CONFIG) --version)
 
-ifeq ($(llvm_version),3.6.2)
-else ifeq ($(llvm_version),3.7.1)
+ifeq ($(llvm_version),3.7.1)
 else ifeq ($(llvm_version),3.8.1)
-else ifeq ($(llvm_version),3.9.0)
+else ifeq ($(llvm_version),3.9.1)
 else
   $(warning WARNING: Unsupported LLVM version: $(llvm_version))
-  $(warning Please use LLVM 3.6.2, 3.7.1, 3.8.1, or 3.9.0)
+  $(warning Please use LLVM 3.7.1, 3.8.1, or 3.9.1)
 endif
 
 compiler_version := "$(shell $(CC) --version | sed -n 1p)"
@@ -252,6 +248,7 @@ $(shell mkdir -p $(PONY_BUILD_DIR))
 lib   := $(PONY_BUILD_DIR)
 bin   := $(PONY_BUILD_DIR)
 tests := $(PONY_BUILD_DIR)
+benchmarks := $(PONY_BUILD_DIR)
 obj   := $(PONY_BUILD_DIR)/obj
 
 # Libraries. Defined as
@@ -309,13 +306,16 @@ endif
 libgtest := $(lib)
 libgtest.dir := lib/gtest
 libgtest.files := $(libgtest.dir)/gtest_main.cc $(libgtest.dir)/gtest-all.cc
+libgbenchmark := $(lib)
+libgbenchmark.dir := lib/gbenchmark
+libgbenchmark.files := $(libgbenchmark.dir)/gbenchmark_main.cc $(libgbenchmark.dir)/gbenchmark-all.cc
 
 # We don't add libponyrt here. It's a special case because it can be compiled
 # to LLVM bitcode.
 ifeq ($(OSTYPE), linux)
-  libraries := libponyc libponyrt-pic libgtest
+  libraries := libponyc libponyrt-pic libgtest libgbenchmark
 else
-  libraries := libponyc libgtest
+  libraries := libponyc libgtest libgbenchmark
 endif
 
 # Third party, but prebuilt. Prebuilt libraries are defined as
@@ -355,6 +355,12 @@ libponyrt.tests := $(tests)
 
 tests := libponyc.tests libponyrt.tests
 
+# Benchmark suites are directly attached to the libraries they test.
+libponyc.benchmarks  := $(benchmarks)
+libponyrt.benchmarks := $(benchmarks)
+
+benchmarks := libponyc.benchmarks libponyrt.benchmarks
+
 # Define include paths for targets if necessary. Note that these include paths
 # will automatically apply to the test suite of a target as well.
 libponyc.include := -I src/common/ -I src/libponyrt/ $(llvm.include)
@@ -366,8 +372,14 @@ libponyc.tests.include := -I src/common/ -I src/libponyc/ $(llvm.include) \
   -isystem lib/gtest/
 libponyrt.tests.include := -I src/common/ -I src/libponyrt/ -isystem lib/gtest/
 
+libponyc.benchmarks.include := -I src/common/ -I src/libponyc/ \
+  $(llvm.include) -isystem lib/gbenchmark/include/
+libponyrt.benchmarks.include := -I src/common/ -I src/libponyrt/ -isystem \
+  lib/gbenchmark/include/
+
 ponyc.include := -I src/common/ -I src/libponyrt/ $(llvm.include)
 libgtest.include := -isystem lib/gtest/
+libgbenchmark.include := -isystem lib/gbenchmark/include/
 
 ifneq (,$(filter $(OSTYPE), osx freebsd))
   libponyrt.include += -I /usr/local/include
@@ -382,6 +394,12 @@ libponyc.tests.buildoptions = -D__STDC_CONSTANT_MACROS
 libponyc.tests.buildoptions += -D__STDC_FORMAT_MACROS
 libponyc.tests.buildoptions += -D__STDC_LIMIT_MACROS
 
+libponyc.benchmarks.buildoptions = -D__STDC_CONSTANT_MACROS
+libponyc.benchmarks.buildoptions += -D__STDC_FORMAT_MACROS
+libponyc.benchmarks.buildoptions += -D__STDC_LIMIT_MACROS
+
+libgbenchmark.buildoptions := -DHAVE_POSIX_REGEX
+
 ponyc.buildoptions = $(libponyc.buildoptions)
 
 ifeq ($(OSTYPE), linux)
@@ -390,16 +408,21 @@ endif
 
 # target specific disabling of build options
 libgtest.disable = -Wconversion -Wno-sign-conversion -Wextra
+libgbenchmark.disable = -Wconversion -Wno-sign-conversion -Wextra
 
 # Link relationships.
 ponyc.links = libponyc libponyrt llvm
 libponyc.tests.links = libgtest libponyc libponyrt llvm
 libponyrt.tests.links = libgtest libponyrt
+libponyc.benchmarks.links = libgbenchmark libponyc libponyrt llvm
+libponyrt.benchmarks.links = libgbenchmark libponyrt
 
 ifeq ($(OSTYPE),linux)
   ponyc.links += pthread dl
   libponyc.tests.links += pthread dl
   libponyrt.tests.links += pthread dl
+  libponyc.benchmarks.links += pthread dl
+  libponyrt.benchmarks.links += pthread dl
 endif
 
 ifneq (, $(DTRACE))
@@ -408,9 +431,11 @@ endif
 
 # Overwrite the default linker for a target.
 ponyc.linker = $(CXX) #compile as C but link as CPP (llvm)
+libponyc.benchmarks.linker = $(CXX)
+libponyrt.benchmarks.linker = $(CXX)
 
 # make targets
-targets := $(libraries) libponyrt $(binaries) $(tests)
+targets := $(libraries) libponyrt $(binaries) $(tests) $(benchmarks)
 
 .PHONY: all $(targets) install uninstall clean stats deploy prerelease
 all: $(targets)
@@ -420,6 +445,8 @@ all: $(targets)
 libponyc.depends := libponyrt
 libponyc.tests.depends := libponyc libgtest
 libponyrt.tests.depends := libponyrt libgtest
+libponyc.benchmarks.depends := libponyc libgbenchmark
+libponyrt.benchmarks.depends := libponyrt libgbenchmark
 ponyc.depends := libponyc libponyrt
 
 # Generic make section, edit with care.
@@ -450,6 +477,9 @@ define DIRECTORY
   else ifneq ($$(filter $(1),$(tests)),)
     sourcedir := $(PONY_TEST_DIR)/$(subst .tests,,$(1))
     outdir := $(obj)/tests/$(subst .tests,,$(1))
+  else ifneq ($$(filter $(1),$(benchmarks)),)
+    sourcedir := $(PONY_BENCHMARK_DIR)/$(subst .benchmarks,,$(1))
+    outdir := $(obj)/benchmarks/$(subst .benchmarks,,$(1))
   else
     sourcedir := $(PONY_SOURCE_DIR)/$(1)
   endif
@@ -659,6 +689,20 @@ endef
 
 $(eval $(call EXPAND_UNINSTALL))
 
+ifdef verbose
+  bench_verbose = -DCMAKE_VERBOSE_MAKEFILE=true
+endif
+
+ifeq ($(lto),yes)
+  bench_lto = -DBENCHMARK_ENABLE_LTO=true
+endif
+
+benchmark: all
+	@echo "Running libponyc benchmarks..."
+	@$(PONY_BUILD_DIR)/libponyc.benchmarks
+	@echo "Running libponyrt benchmarks..."
+	@$(PONY_BUILD_DIR)/libponyrt.benchmarks
+
 test: all
 	@$(PONY_BUILD_DIR)/libponyc.tests
 	@$(PONY_BUILD_DIR)/libponyrt.tests
@@ -773,17 +817,20 @@ help:
 	@echo '   dtrace'
 	@echo
 	@echo 'TARGETS:'
-	@echo '  libponyc          Pony compiler library'
-	@echo '  libponyrt         Pony runtime'
-	@echo '  libponyrt-pic     Pony runtime -fpic'
-	@echo '  libponyc.tests    Test suite for libponyc'
-	@echo '  libponyrt.tests   Test suite for libponyrt'
-	@echo '  ponyc             Pony compiler executable'
+	@echo '  libponyc               Pony compiler library'
+	@echo '  libponyrt              Pony runtime'
+	@echo '  libponyrt-pic          Pony runtime -fpic'
+	@echo '  libponyc.tests         Test suite for libponyc'
+	@echo '  libponyrt.tests        Test suite for libponyrt'
+	@echo '  libponyc.benchmarks    Benchmark suite for libponyc'
+	@echo '  libponyrt.benchmarks   Benchmark suite for libponyrt'
+	@echo '  ponyc                  Pony compiler executable'
 	@echo
-	@echo '  all               Build all of the above (default)'
-	@echo '  test              Run test suite'
-	@echo '  install           Install ponyc'
-	@echo '  uninstall         Remove all versions of ponyc'
-	@echo '  stats             Print Pony cloc statistics'
-	@echo '  clean             Delete all build files'
+	@echo '  all                    Build all of the above (default)'
+	@echo '  test                   Run test suite'
+	@echo '  benchmark              Build and run benchmark suite'
+	@echo '  install                Install ponyc'
+	@echo '  uninstall              Remove all versions of ponyc'
+	@echo '  stats                  Print Pony cloc statistics'
+	@echo '  clean                  Delete all build files'
 	@echo
