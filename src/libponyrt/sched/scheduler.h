@@ -17,6 +17,24 @@ typedef void (*trace_actor_fn)(pony_ctx_t* ctx, pony_actor_t* actor);
 
 typedef struct scheduler_t scheduler_t;
 
+#ifdef USE_TELEMETRY
+typedef struct gc_cycle_t 
+{
+  gc_cycle_t* next_gc;
+  size_t start_gc;
+  size_t end_gc;
+} gc_cycle_t;
+
+typedef struct memory_state_t
+{
+  memory_state_t* next_state;
+  size_t current;
+} memory_state_t;
+
+size_t starting;
+size_t ending;
+#endif
+
 typedef struct pony_ctx_t
 {
   scheduler_t* scheduler;
@@ -50,6 +68,10 @@ typedef struct pony_ctx_t
     size_t time_in_gc;
     size_t time_in_send_scan;
     size_t time_in_recv_scan;
+
+    gc_cycle_t* next_gc;
+    memory_state_t* next_state;
+    size_t currently_allocated;
   #endif
 } pony_ctx_t;
 

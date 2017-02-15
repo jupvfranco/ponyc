@@ -17,6 +17,7 @@ extern "C" {
 #  define ATTRIBUTE_MALLOC(f) f __attribute__((malloc))
 #endif
 
+
 /** Opaque definition of an actor.
  *
  * The internals of an actor aren't visible to the programmer.
@@ -28,6 +29,15 @@ typedef struct pony_actor_t pony_actor_t;
  * The internals of a context aren't visible to the programmer.
  */
 typedef struct pony_ctx_t pony_ctx_t;
+
+/**
+ * Needed for telemetry
+ */
+#ifdef USE_TELEMETRY
+typedef struct gc_cycle_t gc_cycle_t;
+typedef struct memory_state_t memory_state_t;
+#endif
+
 
 /** Message header.
  *

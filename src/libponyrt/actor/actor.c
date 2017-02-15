@@ -104,20 +104,73 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
   }
 }
 
+#ifdef USE_TELEMETRY
+static gc_cycle_t* time_start_gc(pony_ctx_t* ctx, size_t tsc)
+{
+  ctx->count_gc_passes++;
+  gc_cycle_t* last_gc = ctx->next_gc;
+  // this should be optimised
+  gc_cycle_t* current_gc = (gc_cycle_t*) malloc(sizeof(gc_cycle_t));
+  current_gc->start_gc = tsc - starting;
+  current_gc->next_gc = last_gc;
+  ctx->next_gc = current_gc;
+  return current_gc;
+}
+
+static memory_state_t* add_state(pony_ctx_t* ctx, size_t current_allocated)
+{
+  memory_state_t* last_state = ctx->next_state;
+  memory_state_t* state = (memory_state_t*) malloc(sizeof(memory_state_t));
+  state->current = current_allocated;
+  state->next_state = last_state;
+  return state;
+}
+
+static void memory_start_gc(pony_ctx_t* ctx)
+{
+  add_state(ctx, ctx->currently_allocated);
+}
+
+static void time_stop_gc(pony_ctx_t* ctx,
+                         gc_cycle_t* current_gc, size_t tsc)
+{
+  ctx->time_in_gc += (ponyint_cpu_tick() - tsc);
+  current_gc->end_gc = ponyint_cpu_tick() - starting;
+}
+
+static void memory_stop_gc(pony_ctx_t* ctx, pony_actor_t* actor, 
+                           size_t before)
+{
+  size_t deallocated = before - (actor->heap).used;
+  printf("---- %zu :: %zu\n", before, (actor->heap).used);
+  printf("++++ %zu :: %zu\n", ctx->currently_allocated, deallocated);
+  size_t total_now = ctx->currently_allocated - deallocated;
+  printf(">>> %zu\n", total_now);
+  ctx->currently_allocated = total_now;
+  ctx->next_state = add_state(ctx, total_now);
+}
+#endif
+
 static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
 {
 #ifdef NOGC 
-  // nothing
+  // does nothing
 #else
-  if(!ponyint_heap_startgc(&actor->heap))
+  // copied this from `ponyint_heap_startgc`
+  if (actor->heap.used <= actor->heap.next_gc)
     return;
 
   #ifdef USE_TELEMETRY
-    ctx->count_gc_passes++;
     size_t tsc = ponyint_cpu_tick();
+    gc_cycle_t* current_gc = time_start_gc(ctx, tsc);
+
+    // size_t before = (&actor->heap)->used;
+    // memory_start_gc(ctx);
   #endif
   DTRACE1(GC_START, (uintptr_t)ctx->scheduler);
-  
+
+  ponyint_heap_startgc(&actor->heap);
+
   ponyint_gc_mark(ctx);
 
   if(actor->type->trace != NULL)
@@ -127,7 +180,8 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
   ponyint_heap_endgc(&actor->heap);
 
   #ifdef USE_TELEMETRY
-    ctx->time_in_gc += (ponyint_cpu_tick() - tsc);
+    time_stop_gc(ctx, current_gc, tsc);
+    // memory_stop_gc(ctx, actor, before);
   #endif
   DTRACE1(GC_END, (uintptr_t)ctx->scheduler);
 #endif
@@ -399,6 +453,7 @@ void* pony_alloc(pony_ctx_t* ctx, size_t size)
   #ifdef USE_TELEMETRY
     ctx->count_alloc++;
     ctx->count_alloc_size += size;
+    ctx->currently_allocated += size;
   #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
@@ -410,6 +465,7 @@ void* pony_alloc_small(pony_ctx_t* ctx, uint32_t sizeclass)
   #ifdef USE_TELEMETRY
     ctx->count_alloc++;
     ctx->count_alloc_size += HEAP_MIN << sizeclass;
+    ctx->currently_allocated += HEAP_MIN << sizeclass;
   #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, HEAP_MIN << sizeclass);
 
@@ -421,6 +477,7 @@ void* pony_alloc_large(pony_ctx_t* ctx, size_t size)
   #ifdef USE_TELEMETRY
     ctx->count_alloc++;
     ctx->count_alloc_size += size;
+    ctx->currently_allocated += size;
   #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
@@ -432,6 +489,7 @@ void* pony_realloc(pony_ctx_t* ctx, void* p, size_t size)
   #ifdef USE_TELEMETRY
     ctx->count_alloc++;
     ctx->count_alloc_size += size;
+    ctx->currently_allocated += size;
   #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 
@@ -443,6 +501,7 @@ void* pony_alloc_final(pony_ctx_t* ctx, size_t size, pony_final_fn final)
   #ifdef USE_TELEMETRY
     ctx->count_alloc++;
     ctx->count_alloc_size += size;
+    ctx->currently_allocated += size;
   #endif
   DTRACE2(HEAP_ALLOC, (uintptr_t)ctx->scheduler, size);
 

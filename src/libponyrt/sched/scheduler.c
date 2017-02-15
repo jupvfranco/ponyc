@@ -32,6 +32,7 @@ static bool use_yield;
 static mpmcq_t inject;
 static __pony_thread_local scheduler_t* this_scheduler;
 
+
 /**
  * Gets the next actor from the scheduler queue.
  */
@@ -323,6 +324,34 @@ static DECLARE_THREAD_FN(run_thread)
   return 0;
 }
 
+#ifdef USE_TELEMETRY
+static void gcs2String(gc_cycle_t* head)
+{
+  printf("\ngc_intervals: ");
+  gc_cycle_t* cur = head;
+  while (cur != NULL)
+  {
+    printf("(%zu->%zu) ", 
+              cur->start_gc,
+              cur->end_gc);
+    cur = cur->next_gc;
+  }
+  printf("\n");
+}
+
+static void allStates2String(memory_state_t* head)
+{
+  printf("\nmemory usage: ");
+  memory_state_t* cur = head;
+  while (cur != NULL)
+  {
+    printf("%zu->", cur->current);
+    cur = cur->next_state;
+  }
+  printf("\n");
+}
+#endif
+
 static void ponyint_sched_shutdown()
 {
   uint32_t start;
@@ -378,13 +407,18 @@ static void ponyint_sched_shutdown()
         ctx->time_in_send_scan,
         ctx->time_in_recv_scan
       );
+      gcs2String(ctx->next_gc);
+      // allStates2String(ctx->next_state);
     if(i < (scheduler_count - 1))
       printf(",\n");
     #endif
   }
 
+  // should this be in the end of the method?
   #ifdef USE_TELEMETRY
     printf("\n]\n");
+    ending = ponyint_cpu_tick();
+    printf("Program's execution used %zu cpu cycles\n", (ending - starting));
   #endif
 
   ponyint_pool_free_size(scheduler_count * sizeof(scheduler_t), scheduler);
@@ -392,11 +426,16 @@ static void ponyint_sched_shutdown()
   scheduler_count = 0;
 
   ponyint_mpmcq_destroy(&inject);
+
 }
 
 pony_ctx_t* ponyint_sched_init(uint32_t threads, bool noyield, bool nopin,
   bool pinasio)
 {
+  #ifdef USE_TELEMETRY
+    starting = ponyint_cpu_tick();
+  #endif
+    
   use_yield = !noyield;
 
   // If no thread count is specified, use the available physical core count.
