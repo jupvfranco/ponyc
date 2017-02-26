@@ -431,19 +431,17 @@ static void ponyint_sched_shutdown()
       printf(",\n");
     #endif
   }
-
-  // should this be in the end of the method?
-  #ifdef USE_TELEMETRY
-    printf("\n]\n");
-    ending = ponyint_cpu_tick();
-    printf("Program's execution used %zu cpu cycles\n", (ending - starting));
-  #endif
-
   ponyint_pool_free_size(scheduler_count * sizeof(scheduler_t), scheduler);
   scheduler = NULL;
   scheduler_count = 0;
 
   ponyint_mpmcq_destroy(&inject);
+
+  #ifdef USE_TELEMETRY
+    printf("\n]\n");
+    ending = ponyint_cpu_tick();
+    printf("Program's execution used %zu cpu cycles\n", (ending - starting));
+  #endif
 
 }
 
