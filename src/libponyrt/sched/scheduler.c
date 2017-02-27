@@ -406,6 +406,7 @@ static void ponyint_sched_shutdown()
         "    \"count_msg_release\": " __zu ",\n"
         "    \"count_msg_conf\": " __zu ",\n"
         "    \"count_msg_ack\": " __zu ",\n"
+        "    \"time_in_behaviour\": " __zu ",\n"
         "    \"time_in_gc\": " __zu ",\n"
         "    \"time_in_send_scan\": " __zu ",\n"
         "    \"time_in_recv_scan\": " __zu "\n"
@@ -421,6 +422,7 @@ static void ponyint_sched_shutdown()
         ctx->count_msg_release,
         ctx->count_msg_conf,
         ctx->count_msg_ack,
+        ctx->time_in_behaviour,  
         ctx->time_in_gc,
         ctx->time_in_send_scan,
         ctx->time_in_recv_scan

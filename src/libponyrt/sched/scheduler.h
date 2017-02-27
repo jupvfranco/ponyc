@@ -28,12 +28,6 @@ typedef struct gc_cycle_t
   size_t end_gc;
 } gc_cycle_t;
 
-// typedef struct memory_state_t
-// {
-//   memory_state_t* next_state;
-//   size_t current;
-// } memory_state_t;
-
 size_t starting;
 size_t ending;
 #endif
@@ -53,7 +47,7 @@ typedef struct pony_ctx_t
   ponyint_serialise_t serialise;
 
   #ifdef USE_TELEMETRY
-    size_t tsc;
+    uint64_t tsc;
 
     size_t count_gc_passes;
     size_t count_alloc;
@@ -68,13 +62,12 @@ typedef struct pony_ctx_t
     size_t count_msg_conf;
     size_t count_msg_ack;
 
-    size_t time_in_gc;
-    size_t time_in_send_scan;
-    size_t time_in_recv_scan;
+    uint64_t time_in_behaviour;
+    uint64_t time_in_gc;
+    uint64_t time_in_send_scan;
+    uint64_t time_in_recv_scan;
 
     gc_cycle_t* next_gc;
-    // memory_state_t* next_state;
-    // size_t currently_allocated;
   #endif
 } pony_ctx_t;
 

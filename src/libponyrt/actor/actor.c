@@ -103,7 +103,15 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
       }
 
       DTRACE3(ACTOR_MSG_RUN, (uintptr_t)ctx->scheduler, (uintptr_t)actor, msg->id);
+      
+      #ifdef USE_TELEMETRY
+        uint64_t start_behaviour = ponyint_cpu_tick();
+      #endif
       actor->type->dispatch(ctx, actor, msg);
+      #ifdef USE_TELEMETRY
+        uint64_t end_behaviour = ponyint_cpu_tick();
+        ctx->time_in_behaviour += (end_behaviour - start_behaviour);
+      #endif
       return true;
     }
   }
@@ -115,7 +123,7 @@ static gc_cycle_t* time_start_gc(pony_ctx_t* ctx)
   // this should be optimised
   gc_cycle_t* current_gc = (gc_cycle_t*) malloc(sizeof(gc_cycle_t));
 
-  size_t tsc = ponyint_cpu_tick() - starting;
+  uint64_t tsc = ponyint_cpu_tick() - starting;
   ctx->count_gc_passes++;
   gc_cycle_t* last_gc = ctx->next_gc;
   current_gc->start_gc = tsc;
