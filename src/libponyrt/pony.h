@@ -34,8 +34,7 @@ typedef struct pony_ctx_t pony_ctx_t;
  * Needed for telemetry
  */
 #ifdef USE_TELEMETRY
-typedef struct gc_cycle_t gc_cycle_t;
-typedef struct memory_state_t memory_state_t;
+typedef struct interval_t interval_t;
 #endif
 
 

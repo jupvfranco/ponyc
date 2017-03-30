@@ -26,6 +26,49 @@ enum
 
 static bool actor_noblock = false;
 
+#ifdef USE_TELEMETRY
+static interval_t* time_start_gc(pony_ctx_t* ctx)
+{
+  interval_t* current_gc = (interval_t*) POOL_ALLOC(interval_t);
+  uint64_t tsc = ponyint_cpu_tick() - starting;
+  ctx->count_gc_passes++;
+  interval_t* last_gc = ctx->next_gc;
+  current_gc->start = tsc;
+  current_gc->next = last_gc;
+  ctx->next_gc = current_gc;
+  return current_gc;
+}
+
+static void time_stop_gc(pony_ctx_t* ctx,
+                         interval_t* current_gc)
+{
+  size_t start = current_gc -> start;
+  size_t end = ponyint_cpu_tick() - starting;
+  ctx->time_in_gc += (end - start);
+  current_gc->finish = end;
+}
+
+// static interval_t* time_start_behaviour(pony_ctx_t* ctx)
+// {
+//   interval_t* current_be = (interval_t*) POOL_ALLOC(interval_t);
+//   uint64_t tsc = ponyint_cpu_tick() - starting;
+//   current_be->start = tsc;
+//   current_be->next = ctx->next_behaviour;
+//   ctx->next_behaviour = current_be;
+//   return current_be;
+// }
+
+// static void time_stop_behaviour(pony_ctx_t* ctx,
+//                                 interval_t* current_behaviour)
+// {
+//   size_t s = current_behaviour -> start;
+//   size_t e = ponyint_cpu_tick() - starting;  
+//   current_behaviour->finish = e;
+//   ctx->time_in_behaviour += (e-s);
+// }
+
+#endif
+
 static bool has_flag(pony_actor_t* actor, uint8_t flag)
 {
   return (actor->flags & flag) != 0;
@@ -50,7 +93,7 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
     {
 
       pony_msgp_t* m = (pony_msgp_t*)msg;
-#ifndef NOGC
+      #ifndef NOGC
       if(ponyint_gc_acquire(&actor->gc, (actorref_t*)m->p) &&
         has_flag(actor, FLAG_BLOCKED))
       {
@@ -58,24 +101,22 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
         // any CONF messages.
         set_flag(actor, FLAG_RC_CHANGED);
       }
-#endif
+      #endif
       return false;
     }
 
     case ACTORMSG_RELEASE:
     {
       pony_msgp_t* m = (pony_msgp_t*)msg;
-
-#ifndef NOGC
-
+      #ifndef NOGC
       if(ponyint_gc_release(&actor->gc, (actorref_t*)m->p) &&
-        has_flag(actor, FLAG_BLOCKED))
+         has_flag(actor, FLAG_BLOCKED))
       {
         // If our rc changes, we have to tell the cycle detector before sending
         // any CONF messages.
         set_flag(actor, FLAG_RC_CHANGED);
       }
-#endif
+      #endif
       return false;
     }
 
@@ -105,68 +146,17 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
       DTRACE3(ACTOR_MSG_RUN, (uintptr_t)ctx->scheduler, (uintptr_t)actor, msg->id);
       
       #ifdef USE_TELEMETRY
-        uint64_t start_behaviour = ponyint_cpu_tick();
+        uint64_t s = ponyint_cpu_tick();
       #endif
       actor->type->dispatch(ctx, actor, msg);
       #ifdef USE_TELEMETRY
-        uint64_t end_behaviour = ponyint_cpu_tick();
-        ctx->time_in_behaviour += (end_behaviour - start_behaviour);
+        ctx->time_in_behaviour += (ponyint_cpu_tick()-s);
       #endif
       return true;
     }
   }
 }
 
-#ifdef USE_TELEMETRY
-static gc_cycle_t* time_start_gc(pony_ctx_t* ctx)
-{
-  // this should be optimised
-  gc_cycle_t* current_gc = (gc_cycle_t*) malloc(sizeof(gc_cycle_t));
-
-  uint64_t tsc = ponyint_cpu_tick() - starting;
-  ctx->count_gc_passes++;
-  gc_cycle_t* last_gc = ctx->next_gc;
-  current_gc->start_gc = tsc;
-  current_gc->next_gc = last_gc;
-  ctx->next_gc = current_gc;
-  return current_gc;
-}
-
-// static memory_state_t* add_state(pony_ctx_t* ctx, size_t current_allocated)
-// {
-//   memory_state_t* last_state = ctx->next_state;
-//   memory_state_t* state = (memory_state_t*) malloc(sizeof(memory_state_t));
-//   state->current = current_allocated;
-//   state->next_state = last_state;
-//   return state;
-// }
-
-// static void memory_start_gc(pony_ctx_t* ctx)
-// {
-//   add_state(ctx, ctx->currently_allocated);
-// }
-
-static void time_stop_gc(pony_ctx_t* ctx,
-                         gc_cycle_t* current_gc)
-{
-  size_t start = current_gc -> start_gc;
-  size_t end = ponyint_cpu_tick() - starting;
-  ctx->time_in_gc += (end - start);
-  current_gc->end_gc = end;
-}
-
-// static void memory_stop_gc(pony_ctx_t* ctx, pony_actor_t* actor, 
-//                            size_t before)
-// {
-//   size_t deallocated = before - (actor->heap).used;
-//   printf("---- %zu :: %zu\n", before, (actor->heap).used);
-//   printf("++++ %zu :: %zu\n", ctx->currently_allocated, deallocated);
-//   size_t total_now = ctx->currently_allocated - deallocated;
-//   printf(">>> %zu\n", total_now);
-//   ctx->currently_allocated = total_now;
-//   ctx->next_state = add_state(ctx, total_now);
-// }
-#endif
 
 static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
 {
@@ -179,10 +169,7 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
     return;
 
   #ifdef USE_TELEMETRY
-    gc_cycle_t* current_gc = time_start_gc(ctx);
-
-    // size_t before = (&actor->heap)->used;
-    // memory_start_gc(ctx);
+    interval_t* current_gc = time_start_gc(ctx);
   #endif
   DTRACE1(GC_START, (uintptr_t)ctx->scheduler);
 
@@ -198,7 +185,6 @@ static void try_gc(pony_ctx_t* ctx, pony_actor_t* actor)
 
   #ifdef USE_TELEMETRY
     time_stop_gc(ctx, current_gc);
-    // memory_stop_gc(ctx, actor, before);
   #endif
   DTRACE1(GC_END, (uintptr_t)ctx->scheduler);
 #endif

@@ -342,31 +342,16 @@ static DECLARE_THREAD_FN(run_thread)
 }
 
 #ifdef USE_TELEMETRY
-static void gcs2String(gc_cycle_t* head)
+static void intervalsToString(interval_t* head)
 {
-  printf("\ngc_intervals: ");
-  gc_cycle_t* cur = head;
+  interval_t* cur = head;
   while (cur != NULL)
   {
-    printf("(%zu->%zu) ", 
-              cur->start_gc,
-              cur->end_gc);
-    cur = cur->next_gc;
+    printf("(%zu->%zu) ", cur->start, cur->finish);
+    cur = cur->next;
   }
   printf("\n");
 }
-
-// static void allStates2String(memory_state_t* head)
-// {
-//   printf("\nmemory usage: ");
-//   memory_state_t* cur = head;
-//   while (cur != NULL)
-//   {
-//     printf("%zu->", cur->current);
-//     cur = cur->next_state;
-//   }
-//   printf("\n");
-// }
 #endif
 
 static void ponyint_sched_shutdown()
@@ -427,8 +412,10 @@ static void ponyint_sched_shutdown()
         ctx->time_in_send_scan,
         ctx->time_in_recv_scan
       );
-      gcs2String(ctx->next_gc);
-      // allStates2String(ctx->next_state);
+      printf("\ngc_intervals: ");
+      intervalsToString(ctx->next_gc);
+      // printf("\nbehaviour_intervals: ");
+      // intervalsToString(ctx->next_behaviour);
     if(i < (scheduler_count - 1))
       printf(",\n");
     #endif

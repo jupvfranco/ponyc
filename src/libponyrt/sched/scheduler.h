@@ -21,12 +21,12 @@ typedef void (*trace_actor_fn)(pony_ctx_t* ctx, pony_actor_t* actor);
 typedef struct scheduler_t scheduler_t;
 
 #ifdef USE_TELEMETRY
-typedef struct gc_cycle_t 
+typedef struct interval_t 
 {
-  gc_cycle_t* next_gc;
-  size_t start_gc;
-  size_t end_gc;
-} gc_cycle_t;
+  interval_t* next;
+  size_t start;
+  size_t finish;
+} interval_t;
 
 size_t starting;
 size_t ending;
@@ -67,7 +67,8 @@ typedef struct pony_ctx_t
     uint64_t time_in_send_scan;
     uint64_t time_in_recv_scan;
 
-    gc_cycle_t* next_gc;
+    interval_t* next_gc;
+    // interval_t* next_behaviour;
   #endif
 } pony_ctx_t;
 
