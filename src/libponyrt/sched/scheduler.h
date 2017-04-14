@@ -24,12 +24,12 @@ typedef struct scheduler_t scheduler_t;
 typedef struct interval_t 
 {
   interval_t* next;
-  size_t start;
-  size_t finish;
+  uint64_t start;
+  uint64_t finish;
 } interval_t;
 
-size_t starting;
-size_t ending;
+uint64_t starting;
+uint64_t ending;
 #endif
 
 typedef struct pony_ctx_t
@@ -68,7 +68,9 @@ typedef struct pony_ctx_t
     uint64_t time_in_recv_scan;
 
     interval_t* next_gc;
-    // interval_t* next_behaviour;
+    interval_t* next_send_scan;
+    interval_t* next_rcv_scan; 
+    interval_t* next_behaviour;
   #endif
 } pony_ctx_t;
 

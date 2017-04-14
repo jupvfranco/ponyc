@@ -344,6 +344,8 @@ static DECLARE_THREAD_FN(run_thread)
 #ifdef USE_TELEMETRY
 static void intervalsToString(interval_t* head)
 {
+  if (head == NULL) return;
+  
   interval_t* cur = head;
   while (cur != NULL)
   {
@@ -377,6 +379,7 @@ static void ponyint_sched_shutdown()
     ponyint_mpmcq_destroy(&scheduler[i].q);
 
     #ifdef USE_TELEMETRY
+      ending = ponyint_cpu_tick();
       pony_ctx_t* ctx = &scheduler[i].ctx;
       printf(
         "  {\n"
@@ -414,8 +417,12 @@ static void ponyint_sched_shutdown()
       );
       printf("\ngc_intervals: ");
       intervalsToString(ctx->next_gc);
-      // printf("\nbehaviour_intervals: ");
-      // intervalsToString(ctx->next_behaviour);
+      printf("\nsend_scan_intervals: ");
+      intervalsToString(ctx->next_send_scan);
+      printf("\nrcv_scan_intervals: ");
+      intervalsToString(ctx->next_rcv_scan);     
+      printf("\nbehaviors_intervals: ");
+      intervalsToString(ctx->next_behaviour);    
     if(i < (scheduler_count - 1))
       printf(",\n");
     #endif
@@ -428,7 +435,6 @@ static void ponyint_sched_shutdown()
 
   #ifdef USE_TELEMETRY
     printf("\n]\n");
-    ending = ponyint_cpu_tick();
     printf("Program's execution used %zu cpu cycles\n", (ending - starting));
   #endif
 

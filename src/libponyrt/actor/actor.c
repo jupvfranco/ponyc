@@ -42,30 +42,30 @@ static interval_t* time_start_gc(pony_ctx_t* ctx)
 static void time_stop_gc(pony_ctx_t* ctx,
                          interval_t* current_gc)
 {
-  size_t start = current_gc -> start;
-  size_t end = ponyint_cpu_tick() - starting;
+  uint64_t start = current_gc -> start;
+  uint64_t end = ponyint_cpu_tick() - starting;
   ctx->time_in_gc += (end - start);
   current_gc->finish = end;
 }
 
-// static interval_t* time_start_behaviour(pony_ctx_t* ctx)
-// {
-//   interval_t* current_be = (interval_t*) POOL_ALLOC(interval_t);
-//   uint64_t tsc = ponyint_cpu_tick() - starting;
-//   current_be->start = tsc;
-//   current_be->next = ctx->next_behaviour;
-//   ctx->next_behaviour = current_be;
-//   return current_be;
-// }
+static interval_t* time_start_behaviour(pony_ctx_t* ctx)
+{
+  interval_t* current_be = (interval_t*) POOL_ALLOC(interval_t);
+  uint64_t tsc = ponyint_cpu_tick() - starting;
+  current_be->start = tsc;
+  current_be->next = ctx->next_behaviour;
+  ctx->next_behaviour = current_be;
+  return current_be;
+}
 
-// static void time_stop_behaviour(pony_ctx_t* ctx,
-//                                 interval_t* current_behaviour)
-// {
-//   size_t s = current_behaviour -> start;
-//   size_t e = ponyint_cpu_tick() - starting;  
-//   current_behaviour->finish = e;
-//   ctx->time_in_behaviour += (e-s);
-// }
+static void time_stop_behaviour(pony_ctx_t* ctx,
+                                interval_t* current_behaviour)
+{
+  size_t s = current_behaviour -> start;
+  size_t e = ponyint_cpu_tick() - starting;  
+  current_behaviour->finish = e;
+  ctx->time_in_behaviour += (e-s);
+}
 
 #endif
 
@@ -147,10 +147,12 @@ static bool handle_message(pony_ctx_t* ctx, pony_actor_t* actor,
       
       #ifdef USE_TELEMETRY
         uint64_t s = ponyint_cpu_tick();
+        interval_t* current_be = time_start_behaviour(ctx);
       #endif
       actor->type->dispatch(ctx, actor, msg);
       #ifdef USE_TELEMETRY
         ctx->time_in_behaviour += (ponyint_cpu_tick()-s);
+        time_stop_behaviour(ctx, current_be);
       #endif
       return true;
     }
